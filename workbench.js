@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         HM 빅카드 검수 워크벤치
 // @namespace    hailmary-qa
-// @version      0.9.8
-// @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·완료 재검토·저시력 지원 (토스 톤)
+// @version      0.9.9
+// @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·내 완료 재검토·저시력 지원 (토스 톤)
 // @match        https://hailmary-commerce.dev.onkakao.net/admin/*
 // @grant        none
 // @run-at       document-idle
@@ -18,6 +18,26 @@
  *   · 크게 손댔으면  node smoke.js  — 진짜 DOM 에 한 번 올려 본다 (npm i jsdom)
  *
  *  변경 이력
+ *   0.9.9 "내 완료"가 실제로 동작한다. 0.9.8 은 label_status=mine 한 벌을 받아 판정 유무로
+ *         갈랐는데, mine 은 애초에 미완료 큐(373건 · 전부 unlabeled)라 완료가 항상 0건이었다.
+ *         있지도 않은 것을 거르고 있었던 셈이다.
+ *         WB.probe() 로 확인한 결과 서버에 제대로 된 값이 있었다 —
+ *           mine       내 미완료   373건 · unlabeled · 판정 0/5
+ *           mine_done  내 완료     127건 · labeled   · 판정 5/5   ← 이걸 쓴다
+ *           labeled(8795) · all(44489) 은 남의 것까지 섞여 오므로 큐로 쓰지 않는다
+ *           done · completed · complete · todo → 400 unknown label_status
+ *         373 + 127 = 500 = 내게 배정된 전체.
+ *         · 범위마다 서버의 다른 큐를 받는다. 총건수·쪽 번호가 이제 진짜 값이다.
+ *           위치 표시도 "127건 중 34번째" 로 — 쪽 안의 몇 번째는 알고 싶은 게 아니다.
+ *         · '전체' 범위는 없앴다. 서버에 "내 것 전부" 를 주는 값이 없어서 두 번 불러
+ *           이어 붙여야 하는데, 그러면 쪽 번호와 총건수가 둘 다 거짓말이 된다.
+ *         · 완료 범위 끝에서 N/→ 를 누르면 다음 쪽으로 넘어간다.
+ *         · 코드·메시지가 목록에 안 실려 온 건은 잠금을 못 푼다. 되살릴 것이 판정 하나뿐인데
+ *           그대로 저장하면 원래 코드·메시지가 빈 값으로 덮이기 때문이다 (WB.fix(true) 로 강제).
+ *         · check.js 에 큐 범위 검사 추가 — SCOPES 의 status 가 "내 것만" 주는 값인지,
+ *           fetchQueue 에 문자열을 직접 박지 않았는지 본다. 남의 건이 큐로 들어오면
+ *           S.mine 자물쇠가 그대로 열리므로 눈으로 지킬 규칙이 아니다.
+ *
  *   0.9.8 한 장짜리 스크립트를 src/ 11개 모듈로 쪼개고 build.js 로 다시 한 장을 만든다.
  *         배포·붙여넣기 방식은 그대로다 — 산출물은 여전히 파일 하나다.
  *         · 단축키가 한 곳(25-keys.js)에서만 정의된다. 실제 동작 · 단축키 창 ·
@@ -95,7 +115,7 @@
  * ============================================================= */
 (() => {
 'use strict';
-const VERSION = "0.9.8";
+const VERSION = "0.9.9";
 
 /* ══════ src/10-boot.js ══════════════════════════════════════════════ */
 /* --------------------------------------------------------------------------
@@ -408,54 +428,75 @@ const S = {
                   // 새로고침했는데 목록이 걸러진 채로 뜨면 코드가 사라진 줄 안다.
   done:{},        // 이 세션에서 저장한 건: label_row_id → {verdict, codes, msg}
   /* ── 큐 범위 ("내 완료") ── */
-  scope:'todo',   // todo | done | all. 저장하지 않는다 — 새 세션은 항상 미완료부터.
+  scope:'todo',   // todo | done. 저장하지 않는다 — 새 세션은 항상 미완료부터 연다.
   page:1,
-  fetched:[],     // 서버가 준 것 그대로. S.queue 는 여기서 범위로 걸러낸 것이다.
-                  // (WB.raw 는 S 전체를 가리키는 다른 것이다 — 이름을 겹치게 두지 않는다)
-  total:0,
+  size:40,        // 이번에 받아온 쪽 크기. 전체에서 몇 번째인지 셀 때 쓴다.
+  total:0,        // 서버가 말한 이 범위의 총건수
   wasDone:new Set(), // 불러온 시점에 이미 판정이 있던 건. 재저장을 통계에 두 번 세지 않으려고.
   open:new Set(),    // 이번에 잠금을 푼 건. 판정이 있는 건은 잠긴 채로 열린다.
   pref: loadPref(), stats: loadStats(),
 };
 
 /* ---------------------------------------------------------------
- *  큐 범위 — 미완료 ▸ 완료 ▸ 전체
+ *  큐 범위 — 미완료 ▸ 완료
  *
- *  거르는 일은 서버가 아니라 여기서 한다. 서버의 label_status 가 'mine' 말고
- *  어떤 값을 받는지 확인된 바가 없어서, 확인 안 된 파라미터를 넣는 대신
- *  받은 목록을 판정 유무로 나눈다 (WB.probe() 로 확인할 수 있다).
+ *  서버가 받는 label_status 값. 2026-08-04 에 WB.probe() 로 실제로 확인했다:
  *
- *  그래서 한 가지 한계가 있다: 서버의 'mine' 이 미완료만 돌려준다면 완료 범위는
- *  비어 보인다. 그때는 조용히 빈 화면을 보여주는 대신 왜 비었는지 말해 준다.
+ *    mine        내게 배정된 미완료        373건 · 항목 label_status='unlabeled' · 판정 0/5
+ *    mine_done   내가 판정을 끝낸 것       127건 · 항목 label_status='labeled'   · 판정 5/5
+ *    labeled     남의 것까지 판정된 전부  8795건   ← 쓰지 않는다
+ *    all         전부                   44489건   ← 쓰지 않는다
+ *    done · completed · complete · todo → 400 {"detail":"unknown label_status"}
+ *
+ *  373 + 127 = 500 = 내게 배정된 전체. 앞뒤가 맞는다.
+ *
+ *  ★ labeled·all 을 안 쓰는 이유는 양이 많아서가 아니라 안전 때문이다.
+ *    거기서 온 건은 남의 것인데, 큐로 불러오는 순간 S.mine 에 들어가
+ *    저장 자물쇠의 열쇠를 받는다. 그 문을 열지 않는다.
+ *    (check.js 가 여기 status 값을 allowlist 로 검사한다 — 나중에 무심코
+ *     'all' 을 넣으면 빌드가 아니라 점검에서 멈춘다.)
+ *
+ *  '전체' 범위는 두지 않았다. 서버에 "내 것 전부" 를 주는 값이 없어서
+ *  mine + mine_done 두 번을 불러 이어 붙여야 하는데, 그러면 쪽 번호와 총건수가
+ *  둘 다 거짓말이 된다. 없는 편이 낫다 — 상품으로 찾는 건 O(사례 조회)가 한다.
  * --------------------------------------------------------------- */
+/* @check:begin SCOPES */
 const SCOPES = {
-  todo: { label:'미완료', size:40,  pick: it => !humanOf(it) },
-  done: { label:'완료',   size:200, pick: it => !!humanOf(it) },
-  all:  { label:'전체',   size:200, pick: () => true },
+  todo: { label:'미완료', status:'mine',      size:40 },
+  done: { label:'완료',   status:'mine_done', size:40 },
 };
-const SCOPE_ORDER = ['todo', 'done', 'all'];
+/* @check:end */
+const SCOPE_ORDER = ['todo', 'done'];
 const curScope = () => SCOPES[S.scope] || SCOPES.todo;
 
 /* 서버가 주는 human 의 모양을 확정하지 못했다 — 문자열일 수도, 객체일 수도,
  * 항목에 납작하게 붙어 있을 수도 있다. 아는 모양을 다 받아주되, 판정(verdict)이
- * 없으면 null 이다. "판정이 있다" 의 정의가 이 함수 하나로 모인다. */
+ * 없으면 null 이다. "판정이 있다" 의 정의가 이 함수 하나로 모인다.
+ *
+ * detail = 코드·메시지 칸이 실제로 실려 왔는가. 이게 false 면 화면에 되살릴 것이
+ * 판정 하나뿐이라, 그 상태로 덮어쓰면 원래 코드·메시지가 지워진다.
+ * 없는 것과 빈 것을 구분해야 하는 자리라서 값이 아니라 키의 존재로 본다. */
 function humanOf(it) {
   if (!it) return null;
   const h = it.human != null && it.human !== '' ? it.human : null;
   if (h == null) {
     const v = it.human_verdict || '';
-    return v ? { verdict:v, codes: it.human_issue_codes || [], msg: it.human_message || '' } : null;
+    if (!v) return null;
+    return { verdict:v, codes: it.human_issue_codes || [], msg: it.human_message || '',
+             detail: ('human_issue_codes' in it) || ('human_message' in it) };
   }
-  if (typeof h !== 'object') return { verdict:String(h), codes:[], msg:'' };
+  if (typeof h !== 'object') return { verdict:String(h), codes:[], msg:'', detail:false };
   const v = h.verdict || h.human_verdict || '';
   if (!v) return null;
-  return { verdict:v, codes: h.issue_codes || h.human_issue_codes || [], msg: h.message || h.human_message || '' };
+  return { verdict:v, codes: h.issue_codes || h.human_issue_codes || [], msg: h.message || h.human_message || '',
+           detail: ('issue_codes' in h) || ('human_issue_codes' in h) ||
+                   ('message' in h) || ('human_message' in h) };
 }
 /* 이 세션에서 저장한 것이 서버가 준 것보다 새롭다 — 되살릴 때는 이쪽이 먼저다 */
 function judgedOf(it) {
   if (!it) return null;
   const d = S.done[it.label_row_id];
-  return d ? { verdict:d.verdict, codes:d.codes, msg:d.msg, mine:1 } : humanOf(it);
+  return d ? { verdict:d.verdict, codes:d.codes, msg:d.msg, detail:true, mine:1 } : humanOf(it);
 }
 const isLocked = it => !!judgedOf(it) && !S.open.has(it && it.label_row_id);
 function loadPref() {
@@ -475,8 +516,11 @@ async function api(path, opt) {
   if (!r.ok) throw new Error(r.status + ' ' + (await r.text()).slice(0, 200));
   return r.json();
 }
-const fetchQueue = (who, size, page) => api(
-  `api/labeling/items?batch_id=all&label_status=mine&auto_verdict=all&human_verdict=all` +
+/* status 는 SCOPES 가 정한 값만 들어온다 (mine | mine_done). 문자열을 직접 넘기지 말 것 —
+ * 남의 건을 큐로 끌어오면 S.mine 자물쇠가 그대로 열린다. */
+const fetchQueue = (who, size, page, status) => api(
+  `api/labeling/items?batch_id=all&label_status=${encodeURIComponent(status || 'mine')}` +
+  `&auto_verdict=all&human_verdict=all` +
   `&issue_code=all&labeler_filter=&q=&page=${page || 1}&page_size=${size}&labeler=${encodeURIComponent(who)}`);
 const postSave = (p) => api('api/labeling/save',
   { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(p) });
@@ -1017,8 +1061,9 @@ function paintQueueBar() {
   el.bScope.innerHTML = '범위: ' + esc(curScope().label) + '<i>B</i>';
   el.bScope.setAttribute('aria-pressed', String(S.scope !== 'todo'));
   el.bPgP.disabled = S.page <= 1;
+  el.bPgN.disabled = !hasNextPage();
   el.bPgP.title = S.page <= 1 ? '첫 쪽입니다' : `${S.page - 1}쪽으로`;
-  el.bPgN.title = `${S.page + 1}쪽으로`;
+  el.bPgN.title = hasNextPage() ? `${S.page + 1}쪽으로` : '마지막 쪽입니다';
 }
 function resetFx() { S.pref.fx = Object.assign({}, DEF_PREF.fx); savePref(); applyPref(); }
 // 버튼 클릭 후에는 포커스를 풀어 단축키가 계속 먹게 한다 (키보드 Tab 이동은 그대로 유지)
@@ -1370,8 +1415,10 @@ function render() {
   el.pn.textContent = it.product_name || '(상품명 없음)';
   el.mt.textContent = `row ${it.row_number} · product ${it.product_id} · ${it.media.selected_input_column || ''}`;
   setImg('R', it.media.result_url); setImg('O', it.media.selected_input_url);
-  el.pos.textContent = `${S.i + 1} / ${S.queue.length} · ${curScope().label}` +
-                       (S.page > 1 ? ` · ${S.page}쪽` : '');
+  // 쪽 안의 몇 번째가 아니라 이 범위 전체에서 몇 번째인지를 보여준다 —
+  // 127건 중 어디쯤인지가 알고 싶은 것이지 3쪽의 5번째가 궁금한 게 아니다
+  el.pos.textContent = `${(S.page - 1) * S.size + S.i + 1} / ${S.total || S.queue.length}` +
+                       ` · ${curScope().label}` + (S.page > 1 ? ` · ${S.page}쪽` : '');
   S.t0 = Date.now();
   // 판정이 이미 있는 건이면 그 판정·코드·메시지를 그대로 되살려 연다.
   // 빈 폼으로 두면 Space 한 번에 공들인 REJECT 가 빈 PASS 로 덮인다.
@@ -1390,11 +1437,8 @@ function render() {
 /* 큐가 비었을 때 무엇 때문에 비었는지 — 범위를 바꿔 봤는데 아무 말이 없으면
  * 도구가 고장난 줄 안다. */
 function emptyText() {
-  if (S.scope === 'done') return S.fetched.length
-    ? '이 쪽에는 완료된 건이 없습니다'
-    : '완료된 건이 없습니다';
-  if (S.scope === 'todo') return '미완료가 없습니다 — 범위를 [완료] 로 바꿔 보세요 (B)';
-  return '큐가 비었습니다';
+  if (S.scope === 'done') return '완료된 건이 없습니다';
+  return '미완료가 없습니다 — 범위를 [완료] 로 바꿔 보세요 (B)';
 }
 
 /* --------------------------- 잠금 ---------------------------
@@ -1416,6 +1460,8 @@ function paintLock() {
     `저장된 판정: <b>${esc(j.verdict)}</b>` +
     ((j.codes || []).length ? ` · ${j.codes.map(esc).join(', ')}` : '') +
     (j.msg ? `<div style="margin-top:4px;color:var(--mut)">${esc(j.msg)}</div>` : '') +
+    (!j.detail ? `<div style="margin-top:4px;color:var(--warn)">이 목록에는 <b>코드·메시지가 실려 있지 않습니다</b> —
+           위 판정만 서버가 알려준 것입니다. 덮어쓰면 원래 코드·메시지가 지워집니다.</div>` : '') +
     (locked
       ? `<div style="margin-top:4px;color:var(--mut)">고칠 게 없으면 그냥 넘어가세요(<b>N</b>).
            고치려면 아래를 누릅니다 — 그때부터 PASS/REJECT 가 이 판정을 덮어씁니다.</div>
@@ -1423,36 +1469,39 @@ function paintLock() {
       : `<div style="margin-top:4px;color:var(--mut)">잠금이 풀렸습니다. 지금 저장하면 위 내용을 덮어씁니다.</div>`);
   el.rev.style.display = 'block';
 }
-function unlock() {
+function unlock(force) {
   const it = cur(); if (!it) return;
-  if (!judgedOf(it)) return toast('아직 판정이 없는 건이라 잠겨 있지 않습니다');
+  const j = judgedOf(it);
+  if (!j) return toast('아직 판정이 없는 건이라 잠겨 있지 않습니다');
   if (S.open.has(it.label_row_id)) return toast('이미 고칠 수 있는 상태입니다');
+  /* 코드·메시지가 목록에 안 실려 온 건은 열지 않는다.
+   * 화면에 되살릴 것이 판정 하나뿐인데 그대로 저장하면 원래 코드·메시지가
+   * 빈 값으로 덮인다 — 보이지도 않는 것을 지우는 셈이라 잠금의 취지에 정면으로 어긋난다.
+   * 코드를 통째로 새로 매길 작정이면 WB.fix(true). */
+  if (!j.detail && !force) {
+    console.warn('[워크벤치] 이 목록에 코드·메시지가 실려 있지 않습니다 —', it.label_row_id,
+      '\n  지금 저장하면 서버의 코드·메시지가 빈 값으로 덮입니다.',
+      '\n  원래 라벨링 화면에서 확인하고 고치거나, 통째로 새로 매길 거면 WB.fix(true).');
+    return toast('코드·메시지를 서버가 안 줘서 잠금을 못 풉니다 — 덮어쓰면 지워집니다 (콘솔 참고)', true);
+  }
   S.open.add(it.label_row_id);
   paintLock();
-  toast('잠금 해제 — 이제 저장하면 기존 판정을 덮어씁니다');
+  toast(force && !j.detail ? '잠금 해제 (강제) — 코드·메시지를 새로 매기세요'
+                           : '잠금 해제 — 이제 저장하면 기존 판정을 덮어씁니다');
 }
 el.rev.addEventListener('click', e => {
   if (e.target.closest('[data-act="unlock"]')) unlock();
 });
 
-/* 범위 전환 — 미완료 ▸ 완료 ▸ 전체. 서버를 다시 부르지 않고 받아 둔 것만 다시 거른다.
- * 완료 범위로 갔는데 비면, 그건 서버의 mine 이 완료를 빼고 준다는 뜻이다. */
-function applyScope() {
-  S.queue = S.fetched.filter(curScope().pick);
-  S.i = 0;
-  render();
-  if (S.scope === 'done' && !S.queue.length && S.fetched.length) {
-    toast('받아온 ' + S.fetched.length + '건에 완료가 하나도 없습니다 — 콘솔의 안내를 보세요', true);
-    console.warn('[워크벤치] 서버의 label_status=mine 이 완료 건을 빼고 주는 것 같습니다.\n' +
-      '  WB.probe() 로 어떤 label_status 값이 무엇을 돌려주는지 확인할 수 있습니다 (읽기 전용 GET).\n' +
-      '  완료를 주는 값을 찾으면 알려주세요 — fetchQueue 에 반영하면 됩니다.');
-  }
-}
+/* 범위 전환 — 미완료 ▸ 완료. 각각 서버의 다른 큐(mine / mine_done)라 새로 받아온다.
+ * 0.9.8 에서는 mine 한 벌을 받아 판정 유무로 갈랐는데, mine 은 애초에 미완료 큐라
+ * 완료가 항상 0건이었다. 있지도 않은 것을 거르고 있었던 셈이다. */
 function setScope(name) {
   if (!SCOPES[name]) return toast('모르는 범위입니다: ' + name, true);
-  S.scope = name;
-  applyScope();
-  toast('범위: ' + curScope().label + ` · ${S.queue.length}건`);
+  if (S.scope === name) return;
+  WB.load({ scope:name, page:1 })
+    .then(n => toast(`범위: ${curScope().label} · ${S.total}건 중 ${n}건`))
+    .catch(loadErr);
 }
 function cycleScope() {
   setScope(SCOPE_ORDER[(SCOPE_ORDER.indexOf(S.scope) + 1) % SCOPE_ORDER.length]);
@@ -1621,11 +1670,15 @@ function next() {
   // 미완료 범위에서만 다음 묶음을 자동으로 당겨온다. 저장할수록 미완료가 줄어드는
   // 범위라 그게 자연스럽다. 완료·전체에서 같은 짓을 하면 같은 쪽을 다시 받아
   // 처음으로 튕겨 나가므로, 거기서는 쪽을 직접 넘기게 둔다(상단 ▶).
-  if (S.scope !== 'todo') return toast(`${curScope().label} 범위의 끝입니다 — 다음 쪽은 상단 ▶`);
-  toast('큐 끝 — 다음 묶음을 가져옵니다');
-  WB.load().then(n => { if (!n) toast('남은 작업이 없습니다', true); })
-           .catch(loadErr);
+  if (S.scope === 'todo') {
+    toast('큐 끝 — 다음 묶음을 가져옵니다');
+    WB.load().then(n => { if (!n) toast('남은 작업이 없습니다', true); }).catch(loadErr);
+    return;
+  }
+  if (hasNextPage()) { toast('다음 쪽을 가져옵니다'); WB.load({ page: S.page + 1 }).catch(loadErr); return; }
+  toast(`${curScope().label} 마지막입니다 (${S.total}건)`);
 }
+const hasNextPage = () => S.page * S.size < S.total;
 function prev() { if (S.i > 0) { S.i--; render(); } }
 
 /* 조회 창이 떠 있을 때만 통과시키는 키 — 확대·보정·화면 관련만이다.
@@ -2029,29 +2082,38 @@ const WB = window.WB = {
     if (o.scope) S.scope = o.scope;
     S.page = Math.max(1, o.page || 1);
     const sc = curScope();
-    const res = await fetchQueue(S.labeler, o.size || sc.size, S.page);
+    S.size = o.size || sc.size;
+    const res = await fetchQueue(S.labeler, S.size, S.page, sc.status);
     checkCodeDrift(res.issue_codes);
-    S.fetched = res.items || [];
+    S.queue = res.items || [];
     S.total = res.total || 0;
-    S.open.clear();                       // 잠금은 큐마다 새로 건다
-    for (const x of S.fetched) {
+    S.i = 0;
+    S.open.clear();                       // 잠금은 큐를 새로 받을 때마다 다시 건다
+    for (const x of S.queue) {
       S.mine.add(x.label_row_id);         // 저장 자물쇠의 열쇠는 여기서만 만들어진다
       if (humanOf(x)) S.wasDone.add(x.label_row_id);
     }
-    applyScope();                         // S.queue 를 범위로 걸러내고 render()
-    console.log(`큐 ${S.queue.length}건 (받은 ${S.fetched.length}건 / 서버 총 ${S.total}건) · ` +
+    render();
+    // 완료 범위인데 판정이 하나도 안 실려 오면 서버가 목록에 판정을 안 싣는 것이다.
+    // 조용히 빈 화면을 보여주지 않고 왜인지 말한다.
+    if (S.scope === 'done' && S.queue.length && !S.queue.some(humanOf))
+      console.warn('[워크벤치] label_status=mine_done 이 판정 없이 옵니다 — WB.probe() 로 다시 확인하세요.');
+    console.log(`큐 ${S.queue.length}건 (${sc.status} · 서버 총 ${S.total}건) · ` +
                 `범위=${sc.label} · ${S.page}쪽 · labeler=${S.labeler}`);
     return S.queue.length;
   },
   scope(name) { if (name == null) { cycleScope(); return S.scope; } setScope(name); return S.scope; },
   page(n) { return WB.load({ page: n }); },
-  fix()   { unlock(); },
-  /* 서버의 label_status 가 어떤 값을 받는지 확인된 바가 없다.
-   * 그래서 "내 완료"는 받은 목록을 판정 유무로 거르는 방식이다 — 서버가 mine 에
-   * 완료를 안 실어 주면 완료 범위가 비어 보인다. 그때 이걸 돌려 보면 된다.
-   * page_size=5 짜리 읽기 전용 GET 이라 아무것도 바꾸지 않는다. */
+  /* 잠긴 건의 잠금을 푼다 (J). 코드·메시지가 목록에 안 실려 온 건은 거부하는데,
+   * 통째로 새로 매길 작정이면 WB.fix(true) 로 밀고 갈 수 있다. */
+  fix(force) { unlock(force); },
+  /* label_status 가 어떤 값을 받는지 확인하는 읽기 전용 진단.
+   * 2026-08-04 확인: mine(미완료) · mine_done(내 완료) 둘이 우리가 쓰는 값이고,
+   * labeled·all 은 남의 것까지 섞여 오므로 큐로는 쓰지 않는다.
+   * 서버가 바뀌어 완료 범위가 이상해지면 다시 돌려 보면 된다.
+   * page_size=5 짜리 GET 이라 아무것도 바꾸지 않는다. */
   async probe() {
-    const cands = ['mine', 'all', 'done', 'mine_done', 'labeled', 'completed', 'complete', 'todo'];
+    const cands = ['mine', 'mine_done', 'all', 'labeled', 'unlabeled', 'discarded', 'mine_discarded'];
     const rows = [];
     for (const st of cands) {
       try {
@@ -2065,8 +2127,22 @@ const WB = window.WB = {
       } catch (e) { rows.push({ label_status: st, 오류: String(e.message || e).slice(0, 70) }); }
     }
     console.table(rows);
-    console.log('"판정 있는 건" 이 0 이 아닌 값을 찾으면 알려주세요 — src/30-state.js 의 fetchQueue 에 반영하면\n' +
-                '완료 범위가 클라이언트 거르기 없이 서버에서 바로 옵니다.');
+    console.log('지금 쓰는 값: 미완료=mine · 완료=mine_done (src/30-state.js 의 SCOPES).\n' +
+                '이 둘의 "판정 있는 건" 이 각각 0 · 5 가 아니면 서버가 바뀐 것이니 알려주세요.');
+    /* 판정이 어떤 모양으로 실려 오는지 한 건을 통째로 보여준다.
+     * humanOf() 가 이 모양을 읽어 코드·메시지를 되살리는데, 코드·메시지 칸이 아예
+     * 없으면 잠금을 못 풀게 막는다(덮어쓰면 지워지므로). 그 판단의 근거가 이것이다. */
+    try {
+      const d = await fetchQueue(S.labeler, 1, 1, SCOPES.done.status);
+      const it = (d.items || [])[0];
+      if (!it) console.log('완료 건이 없어 판정 모양은 확인하지 못했습니다.');
+      else {
+        const j = humanOf(it);
+        console.log('완료 건의 human 원본:', it.human);
+        console.log('워크벤치가 읽은 값:', j,
+          j && !j.detail ? '← 코드·메시지 칸이 없습니다. 이 상태로는 J(고치기)가 막힙니다.' : '');
+      }
+    } catch (e) { console.log('판정 모양 확인 실패:', String(e.message || e)); }
     return rows;
   },
   arm()    { setArm(true); },
