@@ -1,21 +1,54 @@
 // ==UserScript==
 // @name         HM 빅카드 검수 워크벤치
 // @namespace    hailmary-qa
-// @version      0.9.3
-// @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·저시력 지원 (토스 톤)
+// @version      0.9.7
+// @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·저시력 지원 (토스 톤)
 // @match        https://hailmary-commerce.dev.onkakao.net/admin/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 /* =============================================================
- *  쓰는 법
- *   · Tampermonkey 에 넣으면: 페이지 열면 오른쪽 아래 버튼이 생김
- *   · 콘솔에 붙여넣어도 동일하게 동작 (F12 → Console → 전체 붙여넣기)
- *   · 여는 단축키: Alt+W
  *
  *  저장은 처음엔 꺼져 있음. 상단 [저장 꺼짐] 버튼으로 켠다.
  *
  *  변경 이력
+ *   0.9.7 조회 창에서 남의 판정(사람)을 기본으로 숨김. 참고하라는 지침은 그대로지만,
+ *        판정을 먼저 읽으면 눈이 그쪽으로 끌린다 — 스스로 보고 나서 대조하고 싶으면
+ *        숨긴 채 쓰고, 필요할 때만 [사람 판정] 버튼으로 켠다(설정은 기억됨).
+ *        auto 판정은 지금처럼 목록에 그대로 둔다.
+ *        · q·w·e·z 가 입력창에 안 찍히는 문제 재발 — 0.9.3 의 evictGhosts 는
+ *          '내 앞에 이미 있던' 유령만 치울 수 있었다. 이번에 막은 두 갈래:
+ *          (1) 내 뒤에 로드되는 구버전(Tampermonkey 에 옛 항목이 같이 켜진 경우).
+ *              0.5초마다 순찰하며 낯선 워크벤치 DOM 을 걷어내고 window.WB 를 되찾는다.
+ *              더 새 버전이 보이면 싸우지 않고 내가 비킨다.
+ *          (2) 관리자 화면이 body 를 갈아끼우면 host 가 문서에서 떨어지는데 wrap 은
+ *              show 인 채다 — 보이지 않는 창이 글자를 먹는다. 떨어져 있으면 단축키를
+ *              통째로 양보하고, 순찰이 host 를 도로 붙인다.
+ *          어느 쪽이었는지 확인용 WB.doctor() 추가 — 또 재발하면 이 출력부터 보자.
+ *   0.9.6 Y = label 만 복사. 질문할 때 필요한 건 그것 하나라, 나머지(상품명·주소·
+ *        고른 코드)는 Shift+Y 로 뺐다. 정보 상자에도 [label] · [전체] 두 버튼.
+ *        · 조회 창에서도 휠 확대 · 드래그 이동 · 대비/밝기 · 돋보기가 다 된다.
+ *          확대·이동 기계를 패널 4개(R·O·LR·LO)가 함께 쓰도록 일반화했다.
+ *          모달이 떠 있으면 단축키를 통째로 막던 것도, 조회 창에 한해
+ *          보기·보정 키만 통과시킨다 (판정·코드 키는 그대로 잠긴 채).
+ *        · 창을 크게(최대 1560px) 하고 목록을 왼쪽, 뷰어를 오른쪽으로 돌렸다.
+ *        · 남의 판정을 눌러야 보이게 했던 것을 되돌렸다 — 참고하라는 게 지침이고,
+ *          그러면 목록에서 바로 보이는 편이 맞다.
+ *   0.9.5 O 키 — 사례 조회. 상품명·상품 ID 로 다른 건을 찾아본다. 팀 토의 중에
+ *        Esc 로 빠져나가 원래 화면에서 다시 찾아갈 필요가 없다.
+ *        읽기 전용이다. 그리고 그건 약속이 아니라 구조다 —
+ *          · 조회 결과는 LK.items 에만 담기고 S.queue 에 들어가지 않는다.
+ *            save() 는 cur() = S.queue[S.i] 만 보므로 저장될 경로가 없다.
+ *          · 조회 창은 모달이라 열려 있는 동안 판정 단축키가 통째로 잠긴다.
+ *            "내 큐인 줄 알고 Space 를 눌렀다" 가 이 기능의 진짜 위험인데 거기서 막힌다.
+ *   0.9.4 Y 키 — 지금 보고 있는 건을 "질문용 한 덩어리"로 클립보드에 복사한다.
+ *        상품명 · row · product · label_row_id · 두 이미지 주소 · 내가 고른 코드.
+ *        팀에 물어보려고 Esc 로 빠져나가 원래 화면에서 다시 찾아 적을 필요가 없다.
+ *        · 코드 행 Alt+클릭 = 그 코드명만 복사(토글되지 않음). 코드 행은 클릭이 곧
+ *          토글이라 지금까지 긴 snake_case 코드명을 드래그로 집을 수가 없었다.
+ *        · 저장 직전 "이 건이 내 큐에서 온 것인가"를 확인하는 자물쇠를 채웠다.
+ *          지금은 큐가 곧 내 것이라 항상 참이지만, 앞으로 남의 건을 열람하는
+ *          기능이 붙더라도 저장 경로가 그쪽으로 열리지 않는다.
  *   0.9.3 두 벌이 겹쳐 뜨면 뒤쪽 인스턴스가 코드 단축키 글자(q·w·e·z…)를 가로채
  *        입력창에 안 찍히던 문제 — 다시 붙여넣으면 구버전을 내리고 교체한다.
  *        단축키를 양보하는 기준도 "그 노드인가" 에서 "글자를 받는 요소인가" 로 바꿈
@@ -45,7 +78,7 @@
  * ============================================================= */
 (() => {
 'use strict';
-const VERSION = '0.9.3';
+const VERSION = '0.9.7';
 
 /* --------------------------------------------------------------------------
  *  같은 페이지에 워크벤치가 두 벌 뜨면 안 된다.
@@ -198,9 +231,11 @@ const BY_CODE = Object.fromEntries(CODES.map(c => [c.c, c]));
 /* ------------------------------- 상태 ------------------------------- */
 const DEF_PREF = { theme:'dark', ui:100, desc:false, link:false, guides:false,
                    draft:'short', showTimer:false, loupe:false, split:62,
+                   peers:false,   // 조회 창의 남의 판정(사람 …) 표시 — 기본은 숨김
                    fx:{ bright:100, contrast:100, invert:0, gray:0 } };
 const S = {
   labeler:'', queue:[], i:0, sel:new Set(), armed:false, t0:0, busy:false,
+  mine:new Set(), // 내 큐로 불러온 label_row_id. 저장 직전 자물쇠로만 쓴다.
   q:'',           // 코드 검색어. 화면 필터일 뿐이라 저장하지 않는다 —
                   // 새로고침했는데 목록이 걸러진 채로 뜨면 코드가 사라진 줄 안다.
   done:{},        // 이 세션에서 저장한 건: label_row_id → {verdict, codes, msg}
@@ -246,6 +281,8 @@ const postSave = (p) => api('api/labeling/save',
 
 const host = document.createElement('div');
 host.id = 'hm-wb-host';
+host.dataset.v = VERSION;               // 순찰(patrol)이 낯선 host 의 버전을 읽는 곳
+host.dataset.born = String(Date.now()); // 같은 버전이 둘 뜨면 먼저 태어난 쪽이 남는다
 document.body.appendChild(host);
 const R = host.attachShadow({ mode:'open' });
 R.innerHTML = `<style>
@@ -467,6 +504,47 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
 .sl{display:grid;grid-template-columns:70px 1fr 58px;gap:12px;align-items:center;margin:12px 0;font-size:13.5px}
 .sl input[type=range]{width:100%;accent-color:var(--acc)}
 .sl output{text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}
+
+/* ─── 사례 조회 (읽기 전용) ─── */
+.modal .card.wide{max-width:1560px;width:96%;max-height:94%}
+.lkwarn{border:2px solid var(--warn);color:var(--warn);border-radius:var(--r-ctl);
+ padding:9px 12px;font-size:12.5px;font-weight:600;line-height:1.6;margin:0 0 12px}
+.lkbar{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.lkbar input{flex:1 1 220px;min-width:0;height:var(--h-ctl);padding:0 11px;
+ background:var(--bg);color:var(--fg);border:1px solid var(--edge);border-radius:var(--r-ctl);
+ font:inherit;font-size:13px;letter-spacing:-.01em}
+.lkbar input:hover{border-color:var(--fg)}
+.lkpos{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.lkbody{display:flex;gap:10px;height:64vh;min-height:340px}
+.lklist{flex:0 0 300px;overflow:auto;margin:0 -4px 0 0;padding-right:4px}
+.lkright{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.lkhead{display:flex;align-items:center;gap:8px;font-size:12.5px;min-height:var(--h-ctl)}
+.lkhead .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lkhead .t b{font-size:13.5px;letter-spacing:-.02em}
+.lkview{flex:1;display:flex;gap:6px;min-width:0;min-height:0;
+ background:var(--imgbg);border-radius:var(--r-card);padding:6px}
+.lkview .pane{flex:1 1 0}
+.lkfx{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:12.5px}
+.lkfx input[type=range]{width:120px;accent-color:var(--acc)}
+.lkfx output{font-variant-numeric:tabular-nums;color:var(--mut);width:40px}
+.lkro{display:flex;gap:10px;align-items:flex-start;padding:8px;border-radius:var(--r-ctl);
+ cursor:pointer;border-left:3px solid transparent}
+.lkro:hover{background:var(--hover)}
+.lkro.on{background:var(--selbg);border-left-color:var(--selbar)}
+.lkro.on .lkm b{color:var(--selfg)}
+.lkro>img{flex:0 0 46px;width:46px;height:46px;object-fit:contain;border-radius:8px;
+ background:var(--imgpane);border:1px solid var(--imgline)}
+.lkro>.ph{flex:0 0 46px;height:46px;border-radius:8px;background:var(--imgpane);border:1px solid var(--imgline)}
+.lkm{flex:1;min-width:0;font-size:12.5px;line-height:1.55}
+.lkm b{display:block;font-size:13.5px;font-weight:700;letter-spacing:-.02em;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lkj{margin-top:3px}
+/* 남의 판정(사람 …)은 기본으로 접는다 — 판정을 먼저 읽으면 눈이 그쪽으로 끌린다.
+   DOM 에는 그대로 두고 CSS 로만 접는다: [사람 판정] 토글이 목록을 다시 그리지
+   않으므로 스크롤 위치가 튀지 않는다. auto 줄은 그대로 보인다. */
+.lkj .hum{display:none}
+.wrap.peers .lkj .hum{display:inline}
+
 </style>
 <div class="wrap" role="application" aria-label="빅카드 검수 워크벤치">
  <div class="bar">
@@ -486,6 +564,7 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
   </div>
   <div class="spacer"></div>
   <span class="mut" id="sst">–</span>
+  <button class="cb" id="bLook" aria-label="다른 사례 조회 (읽기 전용)">사례 조회<i>O</i></button>
   <button class="cb" id="bKeys" aria-label="단축키 전체 보기">단축키<i>?</i></button>
   <button class="cb" id="bClose" aria-label="닫기">닫기<i>Esc</i></button>
  </div>
@@ -506,7 +585,13 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
     <div class="stage" id="sO"><img id="iO" alt="원본 상품 이미지"></div></div>
   </div>
   <div class="side">
-   <div class="box"><div class="pname" id="pn">–</div><div class="meta" id="mt">–</div></div>
+   <div class="box" style="display:flex;align-items:flex-start;gap:8px">
+    <div style="flex:1;min-width:0"><div class="pname" id="pn">–</div><div class="meta" id="mt">–</div></div>
+    <button class="cb" id="bCopyL" aria-label="label 복사"
+            title="label_row_id 만 복사합니다">label<i>Y</i></button>
+    <button class="cb" id="bCopy" aria-label="이 건의 정보 전체 복사"
+            title="상품명 · ID · 두 이미지 주소 · 고른 코드까지 한 덩어리로">전체<i>⇧Y</i></button>
+   </div>
    <div class="box grow" id="codes" role="group" aria-label="이슈 코드">
     <div class="fnd">
      <input id="q" type="search" autocomplete="off" spellcheck="false"
@@ -567,12 +652,65 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
        코드명뿐 아니라 <b>공식 설명·경계 메모</b>까지 훑습니다 — <b>shadow</b> 로도 <b>그림자</b> 로도 걸립니다.<br>
        띄어쓴 낱말은 모두 든 코드만 나옵니다(<b>배경 확장</b>).
        <b>이미 고른 코드는 검색어와 상관없이 항상 남습니다</b> — 안 보이는 코드가 저장되는 일이 없도록.</span>
+     <b>복사</b><span><kbd>Y</kbd> <b>label 만</b> 복사 — 질문할 때 필요한 건 보통 이것 하나입니다.<br>
+       <kbd>Shift</kbd>+<kbd>Y</kbd> 상품명 · row · product · label · 두 이미지 주소 · 고른 코드까지 한 덩어리.<br>
+       코드 행 <kbd>Alt</kbd>+클릭 — 그 <b>코드명만</b> 복사합니다(고르기는 되지 않습니다).<br>
+       조회 창이 떠 있으면 <kbd>Y</kbd>는 거기서 고른 사례의 label 을 복사합니다.</span>
+     <b>사례 조회</b><span><kbd>O</kbd> 다른 사례를 상품명·상품 ID 로 찾아봅니다 — <b>읽기 전용</b>입니다.<br>
+       열면 지금 건의 상품명이 미리 들어갑니다. 왼쪽에서 고르면 오른쪽 뷰어에 걸리고,
+       검수 화면과 똑같이 <b>휠 확대 · 드래그 이동 · 대비/밝기 · 돋보기</b>가 다 됩니다
+       (<kbd>0</kbd> <kbd>,</kbd> <kbd>.</kbd> <kbd>[</kbd> <kbd>]</kbd> <kbd>I</kbd> <kbd>K</kbd> <kbd>M</kbd> <kbd>L</kbd> 그대로).<br>
+       판정·코드 단축키만 잠깁니다 — 조회 중에 Space 를 눌러도 아무 일도 일어나지 않습니다.<br>
+       <b>다른 검수자의 판정은 기본으로 숨깁니다</b> — 먼저 읽으면 판단이 끌려가서요.
+       필요하면 [사람 판정] 버튼으로 켭니다 (auto 판정은 항상 보임).</span>
      <b>이미지</b><span><kbd>휠</kbd> 확대 · <kbd>드래그</kbd> 이동 · <kbd>0</kbd> 리셋 · <kbd>M</kbd> 돋보기 · <kbd>G</kbd> 눈금 · <kbd>L</kbd> 확대연동</span>
      <b>보정</b><span><kbd>,</kbd><kbd>.</kbd> 대비 · <kbd>[</kbd><kbd>]</kbd> 밝기 · <kbd>I</kbd> 색반전 · <kbd>K</kbd> 흑백 · <kbd>\\</kbd> 초기화</span>
      <b>화면</b><span><kbd>H</kbd> 테마 · <kbd>-</kbd><kbd>=</kbd> 글자 크기 · <kbd>/</kbd> 코드 설명 · <kbd>Tab</kbd> 요소 이동 · <kbd>Esc</kbd> 닫기</span>
      <b>비율</b><span>두 이미지 사이 경계선을 끌면 좌우 폭이 바뀝니다. 더블클릭하면 기본값</span>
    </div>
    <div class="acts" style="margin-top:16px"><button class="btn bp" id="bKeysClose">닫기</button></div>
+ </div></div>
+
+ <div class="modal" id="mLook" role="dialog" aria-label="사례 조회 (읽기 전용)"><div class="card wide">
+   <h2>사례 조회 <span class="mut" style="font-size:13px;font-weight:500">읽기 전용</span></h2>
+   <div class="lkwarn">이 창에서는 저장·수정이 되지 않습니다. 판정 단축키도 여기서는 잠깁니다.</div>
+   <div class="lkbar">
+     <input id="lq" type="search" autocomplete="off" spellcheck="false"
+            placeholder="상품명 일부 · 상품 ID — Enter 로 검색" aria-label="사례 검색어">
+     <button class="cb" id="lkGo">찾기</button>
+     <button class="cb" id="lkHum" aria-pressed="false"
+             title="다른 검수자의 판정 표시 — 먼저 읽으면 판단이 끌려가서 기본은 숨김">사람 판정</button>
+     <span class="lkpos" id="lkPos"></span>
+     <button class="cb" id="lkPrev" aria-label="이전 쪽">◀</button>
+     <button class="cb" id="lkNext" aria-label="다음 쪽">▶</button>
+   </div>
+   <div class="lkbody">
+     <div class="lklist" id="lkList"></div>
+     <div class="lkright">
+       <div class="lkhead">
+         <span class="t" id="lkHead">왼쪽에서 사례를 고르세요</span>
+         <button class="cb" id="lkLbl" aria-label="이 건의 label 복사">label 복사</button>
+       </div>
+       <div class="lkview">
+         <div class="pane" id="pLR"><span class="tag">생성된 빅카드</span><span class="zl" id="zLR">100%</span>
+          <span class="ld">불러오는 중…</span><div class="loupe" id="lLR"></div>
+          <div class="stage" id="sLR"><img id="iLR" alt="생성된 빅카드"></div></div>
+         <div class="pane" id="pLO"><span class="tag">원본</span><span class="zl" id="zLO">100%</span>
+          <span class="ld">불러오는 중…</span><div class="loupe" id="lLO"></div>
+          <div class="stage" id="sLO"><img id="iLO" alt="원본 상품 이미지"></div></div>
+       </div>
+     </div>
+   </div>
+   <div class="lkfx">
+     <label for="rCt2">대비</label><input type="range" id="rCt2" min="40" max="220" step="5"><output id="oCt2"></output>
+     <label for="rBr2">밝기</label><input type="range" id="rBr2" min="40" max="220" step="5"><output id="oBr2"></output>
+     <button class="cb" id="bInv2" aria-pressed="false">색반전<i>I</i></button>
+     <button class="cb" id="bGray2" aria-pressed="false">흑백<i>K</i></button>
+     <button class="cb" id="bFxR2">보정 초기화<i>\\</i></button>
+     <button class="cb" id="lkFit">화면맞춤<i>0</i></button>
+     <span class="mut">휠 확대 · 드래그 이동 · 더블클릭 화면맞춤</span>
+   </div>
+   <div class="acts" style="margin-top:12px"><button class="btn bp" id="lkClose">닫기 (Esc)</button></div>
  </div></div>
 
  <div class="modal" id="mArm" role="dialog" aria-label="저장 켜기 확인"><div class="card">
@@ -591,8 +729,10 @@ const el = {};
 ['pos','tmr','sst','pn','mt','codes','clist','msg','rev','iR','iO','bp','br','bs','hint',
  'q','bQx','fc','fnone','tgd',
  'bTheme','bUiD','bUiU','bInv','bGray','bLoupe','bGuide','bLink','bFxR','bClose','bFx','bKeys',
- 'bArm','bWho','bReload','gate','who','goWho','cancelWho','sp',
- 'mFx','mKeys','mArm','rCt','rBr','oCt','oBr','bFxClose','bKeysClose','bArmYes','bArmNo']
+ 'bArm','bWho','bReload','bCopy','gate','who','goWho','cancelWho','sp',
+ 'mFx','mKeys','mArm','rCt','rBr','oCt','oBr','bFxClose','bKeysClose','bArmYes','bArmNo',
+ 'bLook','mLook','lq','lkGo','lkPos','lkPrev','lkNext','lkList','lkHead','lkLbl','lkClose',
+ 'rCt2','rBr2','oCt2','oBr2','bInv2','bGray2','bFxR2','lkFit','bCopyL','lkHum']
  .forEach(id => el[id] = $('#' + id));
 const wrap = $('.wrap');
 
@@ -627,7 +767,11 @@ document.body.appendChild(launcher);
   el.clist.innerHTML = html;
   el.codes.addEventListener('click', e => {
     if (e.target.id === 'tgd') return setPref('desc', !S.pref.desc);
-    const d = e.target.closest('.cd'); if (d) toggle(d.dataset.c);
+    const d = e.target.closest('.cd'); if (!d) return;
+    // 코드 행은 클릭이 곧 토글이라 코드명을 드래그로 집을 수가 없다.
+    // Alt+클릭 은 토글하지 않고 코드명만 복사한다 — 질문할 때 붙여넣기용.
+    if (e.altKey) { e.preventDefault(); copyText(d.dataset.c, '코드명을'); return; }
+    toggle(d.dataset.c);
   });
   el.codes.addEventListener('keydown', e => {
     const d = e.target.closest && e.target.closest('.cd');
@@ -748,7 +892,7 @@ function applyPref() {
   const f = p.fx;
   const filter = `brightness(${f.bright}%) contrast(${f.contrast}%)` +
                  (f.invert ? ' invert(1)' : '') + (f.gray ? ' grayscale(1)' : '');
-  el.iR.style.filter = el.iO.style.filter = filter;
+  R.querySelectorAll('.stage img').forEach(n => n.style.filter = filter);
   R.querySelectorAll('.loupe').forEach(n => n.style.filter = filter);
   R.querySelector('#gR').classList.toggle('on', p.guides);
   R.querySelector('#pR').classList.toggle('guided', p.guides);
@@ -760,14 +904,17 @@ function applyPref() {
   el.bFx.textContent = dirty ? `보정 대비${f.contrast} 밝기${f.bright}${f.invert ? ' 반전' : ''}${f.gray ? ' 흑백' : ''}`
                              : '이미지 보정…';
   el.bFx.setAttribute('aria-pressed', String(!!dirty));
-  el.rCt.value = f.contrast; el.oCt.textContent = f.contrast + '%';
-  el.rBr.value = f.bright;   el.oBr.textContent = f.bright + '%';
+  el.rCt.value = el.rCt2.value = f.contrast; el.oCt.textContent = el.oCt2.textContent = f.contrast + '%';
+  el.rBr.value = el.rBr2.value = f.bright;   el.oBr.textContent = el.oBr2.textContent = f.bright + '%';
+  pr('bInv2', f.invert); pr('bGray2', f.gray);
+  wrap.classList.toggle('peers', !!p.peers);   // 조회 목록의 '사람 …' 줄 표시 여부 (CSS 로만 접는다)
+  pr('lkHum', p.peers);
   // 좌우 비율
   R.querySelector('#pR').style.flexGrow = p.split;
   R.querySelector('#pO').style.flexGrow = 100 - p.split;
   el.sp.setAttribute('aria-valuenow', String(p.split));
   el.hint.innerHTML =
-    `<kbd>휠</kbd> 확대 · <kbd>드래그</kbd> 이동 · <kbd>0</kbd> 리셋 · <kbd>F</kbd> 코드 검색 · 가운데 <b>경계선</b>으로 좌우 폭 조절 · <kbd>?</kbd> 단축키`;
+    `<kbd>휠</kbd> 확대 · <kbd>드래그</kbd> 이동 · <kbd>0</kbd> 리셋 · <kbd>F</kbd> 코드 검색 · <kbd>Y</kbd> label 복사 · <kbd>O</kbd> 사례 조회 · 가운데 <b>경계선</b>으로 좌우 폭 조절 · <kbd>?</kbd> 단축키`;
 }
 // 버튼 클릭 후에는 포커스를 풀어 단축키가 계속 먹게 한다 (키보드 Tab 이동은 그대로 유지)
 R.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.cb'); if (b) b.blur(); });
@@ -828,31 +975,42 @@ function setArm(on) {
 })();
 
 /* --------------------------- 확대 / 이동 / 돋보기 --------------------------- */
-const V = { R:{z:1,x:0,y:0,fit:1}, O:{z:1,x:0,y:0,fit:1} };
+/* 패널이 넷이다 — 검수 화면의 R·O, 조회 창의 LR·LO.
+ * 확대·이동·돋보기·보정은 넷이 같은 기계를 쓴다. 조회 창에서만 못 하는 게 있으면
+ * 결국 Esc 로 나가게 되므로, 그러면 이 기능을 만든 의미가 없다. */
+const PANES  = ['R','O','LR','LO'];
+const LINKED = { R:['R','O'], O:['R','O'], LR:['LR','LO'], LO:['LR','LO'] };
+const V = { R:{z:1,x:0,y:0,fit:1}, O:{z:1,x:0,y:0,fit:1},
+            LR:{z:1,x:0,y:0,fit:1}, LO:{z:1,x:0,y:0,fit:1} };
 function applyView(w) {
-  const v = V[w];
-  R.querySelector('#s' + w).style.transform =
+  const v = V[w], st = R.querySelector('#s' + w);
+  if (!st) return;
+  st.style.transform =
     `translate(calc(-50% + ${v.x}px), calc(-50% + ${v.y}px)) scale(${v.z})`;
   R.querySelector('#z' + w).textContent = Math.round(v.z / (v.fit || 1) * 100) + '%';
 }
 function fitView(w) {
-  const img = w === 'R' ? el.iR : el.iO;
+  const img = R.querySelector('#i' + w);
   const st = R.querySelector('#s' + w), pane = R.querySelector('#p' + w);
+  if (!img || !st || !pane) return;
+  const r = pane.getBoundingClientRect();
+  // 닫혀 있는 조회 창의 패널은 폭이 0 이다. 그대로 계산하면 배율이 음수가 되어
+  // 이미지가 뒤집힌 채 남는다. 화면에 없는 패널은 손대지 않는다.
+  if (!r.width || !r.height) return;
   const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
   st.style.width = nw + 'px'; st.style.height = nh + 'px';
-  const r = pane.getBoundingClientRect();
   const fit = Math.min((r.width - 16) / nw, (r.height - 16) / nh) || 1;
   V[w] = { z:fit, x:0, y:0, fit }; applyView(w);
 }
-function resetView() { fitView('R'); fitView('O'); }
+function resetView() { PANES.forEach(fitView); }
 
-['R','O'].forEach(w => {
+PANES.forEach(w => {
   const pane = R.querySelector('#p' + w), loupe = R.querySelector('#l' + w);
-  const img  = w === 'R' ? el.iR : el.iO;
+  const img  = R.querySelector('#i' + w);
   pane.addEventListener('wheel', e => {
     e.preventDefault();
     const f = e.deltaY < 0 ? 1.18 : 1 / 1.18;
-    for (const t of (S.pref.link ? ['R','O'] : [w])) {
+    for (const t of (S.pref.link ? LINKED[w] : [w])) {
       const v = V[t]; v.z = Math.min(20, Math.max(v.fit * 0.4, v.z * f)); applyView(t);
     }
   }, { passive:false });
@@ -910,7 +1068,8 @@ function autoDraft() {
   el.msg.value = [...S.sel].map(c => BY_CODE[c][f]).join(', ');
 }
 function setImg(w, url) {
-  const img = w === 'R' ? el.iR : el.iO, pane = R.querySelector('#p' + w);
+  const img = R.querySelector('#i' + w), pane = R.querySelector('#p' + w);
+  if (!img || !pane) return;
   pane.classList.add('loading');
   img.onload  = () => { pane.classList.remove('loading'); fitView(w); };
   img.onerror = () => pane.classList.remove('loading');
@@ -958,7 +1117,56 @@ function renderStats() {
   const s = S.stats;
   el.sst.textContent = `저장 ${s.n}건` + (s.n ? ` · auto 판정일치 ${Math.round(s.agreeVerdict / s.n * 100)}%` : '');
 }
+/* --------------------------- 순찰 ---------------------------
+ * evictGhosts 는 이 스크립트보다 '먼저' 있던 유령만 치울 수 있다. Tampermonkey 에
+ * 옛 버전 항목이 같이 켜져 있으면 그쪽이 우리 '뒤에' 로드되면서 전역 키 핸들러를
+ * 새로 깔고, q·w·e·z 를 도로 먹기 시작한다 — 0.9.3 증상의 재발 경로다.
+ * 그래서 0.5초마다 확인한다: 낯선 워크벤치 DOM 은 걷어내고, 빼앗긴 window.WB 는
+ * 되찾고, 관리자 화면이 body 를 갈아끼워 떨어져 나간 내 host 는 도로 붙인다.
+ * 더 새 버전이 보이면 싸우지 않는다 — 내가 비킨다. */
+function verNum(v) {
+  const p = String(v || '0').split('.');
+  return (+p[0] || 0) * 1e6 + (+p[1] || 0) * 1e3 + (+p[2] || 0);
+}
+function quietHost(h) {   // evictGhosts 와 같은 처치 — 화면을 접고, 다시 켜지지 않게 잠근다
+  const w = h.shadowRoot && h.shadowRoot.querySelector('.wrap');
+  if (w) {
+    w.classList.remove('show');
+    try { new MutationObserver(() => { if (w.classList.contains('show')) w.classList.remove('show'); })
+            .observe(w, { attributes:true, attributeFilter:['class'] }); } catch (e) {}
+  }
+  h.remove();
+}
+function patrol() {
+  // 1) window.WB 를 남이 쥐고 있다: 더 새 버전이면 내가 비키고, 구버전이면 내리고 되찾는다.
+  //    (제대로 된 새 버전은 설치할 때 우리 destroy() 를 불러 TICK 을 끄므로,
+  //     내가 아직 돌고 있는데 자리를 빼앗겼다면 그쪽은 guard 없는 구버전이다.)
+  const alien = window.WB;
+  if (alien && alien !== WB) {
+    if (verNum(alien.VERSION) > verNum(VERSION)) { WB.destroy(); return; }
+    console.warn('[워크벤치] v' + (alien.VERSION || '?') + ' 이 내 뒤에 로드됨 — 내리고 자리를 되찾습니다');
+    try { alien.destroy && alien.destroy(); } catch (e) {}
+    window.WB = WB;
+  }
+  // 2) 낯선 워크벤치 DOM — destroy() 가 없는 구버전이 내 뒤에 만든 것
+  for (const h of document.querySelectorAll('#hm-wb-host')) {
+    if (h === host) continue;
+    const c = verNum(h.dataset.v) - verNum(VERSION);
+    // 같은 버전이 둘이면(샌드박스 분리 등) 먼저 태어난 쪽이 남는다 — 둘 다 비키면 아무도 없다
+    if (c > 0 || (c === 0 && +(h.dataset.born || 0) < +host.dataset.born)) { WB.destroy(); return; }
+    console.warn('[워크벤치] 낯선 워크벤치 DOM 을 걷어냅니다 (v' + (h.dataset.v || '0.9.6 이하') + ')');
+    quietHost(h);
+  }
+  for (const n of [...(document.body ? document.body.children : [])]) {
+    if (n !== launcher && n.tagName === 'BUTTON' &&
+        (n.dataset.hmWbLauncher || n.textContent === '검수 워크벤치')) n.remove();
+  }
+  // 3) 관리자 화면이 body 를 갈아끼워 내 host·실행 버튼이 떨어졌으면 도로 붙인다
+  if (!host.isConnected && document.body) document.body.appendChild(host);
+  if (!launcher.isConnected && document.body) document.body.appendChild(launcher);
+}
 const TICK = setInterval(() => {
+  patrol();
   if (S.pref.showTimer && wrap.classList.contains('show') && cur())
     el.tmr.textContent = ((Date.now() - S.t0) / 1000).toFixed(0) + '초';
 }, 500);
@@ -969,9 +1177,197 @@ function toast(m, bad) {
   wrap.appendChild(t); setTimeout(() => t.remove(), bad ? 6000 : 2200);
 }
 
+/* --------------------------- 복사 ---------------------------
+ *  팀에 물어볼 때 필요한 건 "이게 어느 건인지" 한 덩어리다. 지금까지는 Esc 로
+ *  워크벤치를 빠져나가 원래 화면에서 다시 찾아 적어야 했다. Y 한 번으로 끝낸다.
+ *
+ *  navigator.clipboard 는 https + 문서에 포커스가 있어야 동작한다. 관리자 페이지는
+ *  https 지만 포커스가 빠진 순간에는 거부되므로 execCommand 로 한 번 더 받는다.
+ *  임시 textarea 는 shadow DOM 이 아니라 document.body 에 붙인다 — shadow 안의
+ *  노드는 execCommand('copy') 의 선택 영역으로 잡히지 않는 경우가 있다.
+ *  둘 다 실패하면 조용히 넘어가지 않고 콘솔에 원문을 뱉는다. */
+async function copyText(s, what) {
+  const label = (what || '') + ' 복사됨';
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(s);
+      toast(label); return true;
+    }
+  } catch (e) {}
+  // clipboard 가 거부된 뒤에도 여기까지는 보통 수십 ms 다. 크롬의 사용자 제스처
+  // 유효 시간(수 초)이 아직 남아 있어 execCommand 가 받아준다.
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.style.cssText = 'position:fixed;top:-2000px;left:-2000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, s.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    if (ok) { toast(label); return true; }
+  } catch (e) {}
+  toast('복사에 실패했습니다 — 콘솔에 원문을 띄웠습니다', true);
+  console.log(s);
+  return false;
+}
+
+/* 질문에 붙여넣을 한 덩어리(Shift+Y). 보통은 label 하나면 되므로 Y 가 그쪽이다.
+ * auto 판정은 넣지 않는다 — 물어보는 쪽이 필요하면 U 로 열어 직접 덧붙이면 된다. */
+function refBlockOf(it, codes, ref) {
+  if (!it) return '';
+  const m = it.media || {};
+  const L = [
+    `[빅카드 검수${ref ? ' · 참고' : ''}] ${it.product_name || '(상품명 없음)'}`,
+    `row ${it.row_number} · product ${it.product_id}` +
+      (m.selected_input_column ? ` · ${m.selected_input_column}` : ''),
+    `label_row_id ${it.label_row_id}`,
+  ];
+  if (m.result_url)         L.push(`결과 ${m.result_url}`);
+  if (m.selected_input_url) L.push(`원본 ${m.selected_input_url}`);
+  if (codes && codes.length) L.push(`내가 고른 코드 ${codes.join(', ')}`);
+  return L.join('\n');
+}
+function refBlock() { return refBlockOf(cur(), [...S.sel], false); }
+function copyRefOf(it, ref) {
+  const t = refBlockOf(it, ref ? [] : [...S.sel], ref);
+  if (!t) return toast('복사할 건이 없습니다', true);
+  return copyText(t, ref ? '참고 건의 정보를' : '이 건의 정보를');
+}
+function copyRef() { return copyRefOf(cur(), false); }
+/* 질문할 때 실제로 필요한 건 이것 하나다. 나머지는 전체 복사(⇧Y)로 뺐다. */
+function copyLabel(it) {
+  if (!it || !it.label_row_id) return toast('복사할 label 이 없습니다', true);
+  return copyText(String(it.label_row_id), 'label 을');
+}
+el.bCopy.onclick  = () => copyRef();
+el.bCopyL.onclick = () => copyLabel(cur());
+
+/* --------------------------- 사례 조회 (읽기 전용) ---------------------------
+ *  "이거 저번에 비슷한 게 있지 않았나" 를 Esc 로 빠져나가지 않고 여기서 본다.
+ *
+ *  안전은 약속이 아니라 구조로 잡는다.
+ *   1. 조회 결과는 LK.items 에만 담긴다. S.queue 에는 들어가지 않는다.
+ *      save() 가 보는 것은 cur() = S.queue[S.i] 뿐이므로, 조회한 건이 저장 payload 에
+ *      실릴 경로가 아예 없다. 그 위에 S.mine 자물쇠가 한 겹 더 있다.
+ *   2. 이 창은 .modal 이다. 전역 키 핸들러가 모달이 떠 있으면 판정 단축키를 통째로
+ *      무시하므로, 남의 건을 띄워놓고 Space 를 눌러도 아무 일도 일어나지 않는다.
+ *      "내 큐인 줄 알고 눌렀다" 가 이 기능의 진짜 위험인데, 그게 여기서 막힌다.
+ *
+ *  질의는 관리자 화면이 이미 쓰는 GET 그대로다. label_status=all · q=검색어.
+ *  labeler_filter 는 쓰지 않는다 — 확인되지 않은 파라미터를 넣지 않는다.
+ * --------------------------------------------------------------- */
+const LK = { q:'', page:1, size:20, total:0, items:[], sel:-1, busy:false };
+const fetchLook = (q, page, size) => api(
+  `api/labeling/items?batch_id=all&label_status=all&auto_verdict=all&human_verdict=all` +
+  `&issue_code=all&labeler_filter=&q=${encodeURIComponent(q)}` +
+  `&page=${page}&page_size=${size}&labeler=${encodeURIComponent(S.labeler)}`);
+
+/* 서버가 주는 human / auto 의 정확한 모양을 확인하지 못했다.
+ * 객체면 아는 필드로 풀고, 아니면 있는 그대로 보여준다. 추측해서 감추지 않는다. */
+function vtxt(o) {
+  if (o == null || o === '') return '—';
+  if (typeof o !== 'object') return String(o);
+  if ('verdict' in o || 'issue_codes' in o || 'message' in o) {
+    return (o.verdict || '—')
+      + ((o.issue_codes || []).length ? ' · ' + o.issue_codes.join(', ') : '')
+      + (o.message ? ' · ' + o.message : '');
+  }
+  try { return JSON.stringify(o); } catch (e) { return String(o); }
+}
+const lkWho = it => String(it.labeled_by || it.assigned_to || '');
+function lkNote(s) { el.lkList.innerHTML = `<div class="fnone" style="display:block">${esc(s)}</div>`; }
+
+function drawLook() {
+  if (!LK.items.length) { lkNote('결과가 없습니다. 상품명을 더 짧게 잘라서 넣어보세요.'); drawPv(); return; }
+  el.lkList.innerHTML = LK.items.map((it, i) => {
+    const m = it.media || {};
+    return `<div class="lkro${i === LK.sel ? ' on' : ''}" data-i="${i}">` +
+      (m.result_url ? `<img loading="lazy" src="${esc(m.result_url)}" alt="">` : `<div class="ph"></div>`) +
+      `<div class="lkm"><b>${esc(it.product_name || '(상품명 없음)')}</b>` +
+      `<span class="mut">row ${esc(it.row_number)} · product ${esc(it.product_id)}` +
+      (it.label_status ? ` · ${esc(it.label_status)}` : '') +
+      (lkWho(it) ? ` · ${esc(lkWho(it))}` : '') + `</span>` +
+      `<div class="lkj mut"><span class="hum">사람 ${esc(vtxt(it.human))}<br></span>auto ${esc(vtxt(it.auto))}</div>` +
+      `</div></div>`;
+  }).join('');
+  const from = (LK.page - 1) * LK.size + 1;
+  el.lkPos.textContent = `${from}–${from + LK.items.length - 1} / ${LK.total}건`;
+  drawPv();
+}
+/* 고른 사례를 오른쪽 뷰어에 건다. 확대·이동·보정은 검수 화면과 같은 기계를 쓴다. */
+function drawPv() {
+  const it = LK.items[LK.sel];
+  if (!it) {
+    el.lkHead.textContent = '왼쪽에서 사례를 고르세요';
+    setImg('LR', ''); setImg('LO', ''); return;
+  }
+  const m = it.media || {};
+  el.lkHead.innerHTML = `<b>${esc(it.product_name || '(상품명 없음)')}</b> ` +
+    `<span class="mut">row ${esc(it.row_number)} · product ${esc(it.product_id)}` +
+    (lkWho(it) ? ` · ${esc(lkWho(it))}` : '') + `</span>`;
+  setImg('LR', m.result_url); setImg('LO', m.selected_input_url);
+}
+async function runLook(page) {
+  const q = el.lq.value.trim();
+  if (!q) return lkNote('검색어를 넣으세요 — 상품명 일부면 됩니다.');
+  if (LK.busy) return;
+  LK.busy = true; lkNote('찾는 중…');
+  try {
+    const d = await fetchLook(q, page, LK.size);
+    LK.q = q; LK.page = page;
+    LK.total = d.total || 0; LK.items = d.items || [];
+    LK.sel = LK.items.length ? 0 : -1;      // 첫 건을 바로 걸어준다
+    drawLook();
+  } catch (e) {
+    lkNote(String(e.message || e));
+    console.error('[워크벤치] 조회 실패', e);
+  } finally { LK.busy = false; }
+}
+function openLook() {
+  const it = cur();
+  if (!el.lq.value.trim()) el.lq.value = LK.q || (it && it.product_name) || '';
+  modal(el.mLook, true);
+  if (!LK.items.length) { if (el.lq.value.trim()) runLook(1); else lkNote('상품명 일부를 넣고 Enter 를 누르세요.'); }
+  else { drawLook(); setTimeout(() => { fitView('LR'); fitView('LO'); }, 60); }
+}
+/* 전체를 다시 그리면 스크롤이 맨 위로 튄다. 바뀐 자리만 손댄다. */
+el.lkList.addEventListener('click', e => {
+  const row = e.target.closest('.lkro');
+  if (!row) return;
+  LK.sel = +row.dataset.i;
+  el.lkList.querySelectorAll('.lkro').forEach(n => n.classList.toggle('on', +n.dataset.i === LK.sel));
+  drawPv();
+});
+el.lkLbl.onclick   = () => copyLabel(LK.items[LK.sel]);   // 고른 게 없으면 안내만 나온다
+el.lkHum.onclick   = () => setPref('peers', !S.pref.peers);   // CSS 만 접었다 펴서 스크롤이 안 튄다
+el.lkFit.onclick   = () => { fitView('LR'); fitView('LO'); };
+el.lkGo.onclick    = () => runLook(1);
+el.lkPrev.onclick  = () => { if (LK.page > 1) runLook(LK.page - 1); };
+el.lkNext.onclick  = () => { if (LK.page * LK.size < LK.total) runLook(LK.page + 1); };
+el.lkClose.onclick = () => modal(null, false);
+el.rCt2.oninput    = () => setFx('contrast', +el.rCt2.value);
+el.rBr2.oninput    = () => setFx('bright',   +el.rBr2.value);
+el.bInv2.onclick   = () => setFx('invert', S.pref.fx.invert ? 0 : 1);
+el.bGray2.onclick  = () => setFx('gray',   S.pref.fx.gray ? 0 : 1);
+el.bFxR2.onclick   = () => { S.pref.fx = Object.assign({}, DEF_PREF.fx); savePref(); applyPref(); };
+el.bLook.onclick   = () => openLook();
+el.lq.addEventListener('keydown', e => {
+  if (e.isComposing || e.keyCode === 229) return;   // 한글 조합 중의 Enter 는 확정용
+  if (e.key !== 'Enter') return;
+  runLook(1); e.preventDefault(); e.stopPropagation();
+});
+
 /* --------------------------- 저장 --------------------------- */
 async function save(verdict) {
   const it = cur(); if (!it || S.busy) return;
+  /* 내 큐로 불러온 건만 저장한다.
+   * 지금은 큐가 곧 내 것이라 이 조건이 깨질 일이 없다. 그래도 미리 채워 두는 이유는,
+   * 나중에 남의 건을 열람하는 기능이 붙었을 때 "저장 버튼을 안 누르면 된다"가 아니라
+   * "저장 경로 자체가 닫혀 있다"로 만들어 두기 위해서다. 조용히 넘어가지 않고 멈춘다. */
+  if (!S.mine.has(it.label_row_id)) {
+    console.warn('[워크벤치] 내 큐에 없는 건이라 저장을 막았습니다', it.label_row_id);
+    return toast('내 큐에서 불러온 건이 아니라 저장하지 않았습니다', true);
+  }
   const codes = [...S.sel], msg = el.msg.value.trim();
   if (verdict === 'reject') {
     if (!codes.length) return toast('이슈 코드를 최소 1개 고르세요', true);
@@ -1046,6 +1442,10 @@ function next() {
 }
 function prev() { if (S.i > 0) { S.i--; render(); } }
 
+/* 조회 창이 떠 있을 때만 통과시키는 키 — 확대·보정·화면 관련만이다.
+ * 판정(Space·Enter·N)과 이슈 코드 키는 일부러 빼 두었다. */
+const LOOK_KEYS = new Set(['0', ',', '.', '[', ']', 'i', 'k', '\\', 'm', 'l', 'h', '-', '=', 'y']);
+
 /* --------------------------- 키보드 ---------------------------
  * 글자를 받는 곳에 포커스가 있으면 코드 단축키를 절대 가로채지 않는다.
  * 예전에는 el.msg / el.who / el.q 세 노드와 동일한지만 봤는데, 그러면
@@ -1066,6 +1466,11 @@ function isTextEntry(n) {
 bind(window, 'keydown', e => {
   if (e.altKey && (e.key === 'w' || e.key === 'W')) { WB.open(); e.preventDefault(); return; }
   if (!wrap.classList.contains('show')) return;
+  // show 로 표시돼 있어도 host 가 문서에서 떨어져 있으면 화면에는 아무것도 없다.
+  // (관리자 화면이 body 를 갈아끼우면 이렇게 된다.) 보이지 않는 창이 q·w·e·z 를
+  // 먹는 것이 0.9.3 증상의 재발 경로라, 떨어져 있는 동안은 통째로 양보한다.
+  // 순찰(patrol)이 0.5초 안에 host 를 도로 붙인다.
+  if (!host.isConnected) return;
   const path = e.composedPath ? e.composedPath() : [];
   const focused = R.activeElement;              // 우리 shadow 트리에서 실제로 포커스를 쥔 것
   const on = path[0] || focused || {};
@@ -1082,14 +1487,28 @@ bind(window, 'keydown', e => {
     e.preventDefault(); return;
   }
   if (inText || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (anyModal()) return;                       // 모달이 떠 있으면 단축키를 먹지 않는다
+  const kk = e.key.toLowerCase();
+  if (anyModal()) {
+    // 모달이 떠 있으면 단축키를 먹지 않는다. 조회 창만 예외로 보기·보정 키를 통과시킨다 —
+    // 확대·대비를 못 만지면 결국 창을 닫고 나가게 되니 기능의 의미가 없어진다.
+    // 판정·코드 키는 여기에 없다. 그쪽은 계속 잠긴 채다.
+    if (!(el.mLook.classList.contains('show') && LOOK_KEYS.has(kk))) return;
+  }
   if (on.type === 'range') return;              // 슬라이더 조작 중에는 방향키를 양보
   // Tab 은 가로채지 않는다 — 키보드 사용자의 포커스 이동이 최우선이다.
   if (e.key === 'Tab') return;
   // 버튼·체크박스에 포커스가 있을 때 Space/Enter 는 그 요소의 것이다.
   const focusable = on.tagName === 'BUTTON' || (on.classList && on.classList.contains('cd'));
   if (focusable && (e.key === ' ' || e.key === 'Enter')) return;
-  const k = e.key.toLowerCase(), P = S.pref, F = P.fx;
+  const k = kk, P = S.pref, F = P.fx;
+  // Y = label 만 · Shift+Y = 상품명·주소까지 한 덩어리. 질문에 쓰는 쪽이 기본이다.
+  // 조회 창이 떠 있으면 대상은 거기서 고른 사례다.
+  if (k === 'y') {
+    const inLook = el.mLook.classList.contains('show');
+    const it = inLook ? LK.items[LK.sel] : cur();
+    if (e.shiftKey) copyRefOf(it, inLook); else copyLabel(it);
+    e.preventDefault(); return;
+  }
   if (BY_KEY[k]) { toggle(BY_KEY[k].c); e.preventDefault(); return; }
   const act = {
     ' ':      () => save('pass'),
@@ -1115,6 +1534,7 @@ bind(window, 'keydown', e => {
     "'":      () => el.msg.focus(),
     'f':      focusFind,
     'u':      peekAuto,
+    'o':      openLook,
     '?':      () => modal(el.mKeys, true),
   }[k];
   if (act) { act(); e.preventDefault(); }
@@ -1197,6 +1617,9 @@ const WB = window.WB = {
     if (window.WB === WB) { try { delete window.WB; } catch (e) { window.WB = undefined; } }
   },
   open() {
+    // 관리자 화면이 body 를 다시 그렸으면 host·실행 버튼이 떨어져 있다 — 붙이고 연다
+    if (!host.isConnected) document.body.appendChild(host);
+    if (!launcher.isConnected) document.body.appendChild(launcher);
     wrap.classList.add('show'); applyPref();
     if (!S.labeler) setWho(guessLabeler());
     if (!S.labeler) return gate(true);
@@ -1210,6 +1633,7 @@ const WB = window.WB = {
     const d = await fetchQueue(S.labeler, size || 40);
     checkCodeDrift(d.issue_codes);
     S.queue = d.items || []; S.i = 0;
+    S.queue.forEach(x => S.mine.add(x.label_row_id));   // 저장 자물쇠의 열쇠는 여기서만 만들어진다
     console.log(`큐 ${S.queue.length}건 로드 (미완료 총 ${d.total}건) · labeler=${S.labeler}`);
     render(); return S.queue.length;
   },
@@ -1217,6 +1641,8 @@ const WB = window.WB = {
   disarm() { setArm(false); },
   who(name){ if (name == null) return gate(true); setWho(name); return WB.load(); },
   find(v) { setFind(v == null ? '' : String(v)); return el.fc.textContent || '전체'; },
+  copy()  { copyRef(); return refBlock(); },
+  look(v) { if (v != null) el.lq.value = String(v); openLook(); },
   timer(on){ setPref('showTimer', !!on); },
   draft(m) { setPref('draft', m || 'short'); console.log('자동 초안 =', S.pref.draft); },
   stats() {
@@ -1230,6 +1656,23 @@ const WB = window.WB = {
     console.table(o); return o;
   },
   reset()  { S.stats = blank(); saveStats(); renderStats(); },
+  /* q·w·e·z 가 또 먹히면 제일 먼저 이걸 돌려서 결과를 공유해 달라.
+   * 워크벤치 DOM 이 2개 이상 = 유령이 있다(보통 Tampermonkey 에 옛 항목이 같이 켜짐).
+   * host 부착이 false = 관리자 화면이 body 를 갈아끼운 경우다. */
+  doctor() {
+    const hosts = [...document.querySelectorAll('#hm-wb-host')];
+    const o = { 버전: VERSION,
+      'window.WB 가 나인가': window.WB === WB,
+      'window.WB 버전': (window.WB && window.WB.VERSION) || '(없음)',
+      '워크벤치 DOM 개수': hosts.length,
+      'host 부착': host.isConnected,
+      '창 열림': wrap.classList.contains('show'),
+      '실행 버튼 부착': launcher.isConnected };
+    console.table(o);
+    if (hosts.length > 1) console.warn('[워크벤치] 워크벤치 DOM 이 ' + hosts.length +
+      '개입니다 — 다음 순찰(0.5초)이 걷어냅니다. Tampermonkey 에 옛 버전 항목이 같이 켜져 있지 않은지 확인하세요.');
+    return o;
+  },
   raw: S,
 };
 
@@ -1244,6 +1687,15 @@ console.log([
   '',
   '  코드 검색 : F → 검색어 → Enter 로 첫 결과 선택, Esc 로 해제.',
   '             코드명·공식 설명·경계 메모를 함께 찾습니다 (shadow / 그림자 둘 다 가능).',
+  '',
+  '  복사     : Y — label 만 복사. Shift+Y — 상품명·주소·고른 코드까지 한 덩어리.',
+  '             코드 행 Alt+클릭 = 그 코드명만 복사(고르기는 되지 않음).',
+  '',
+  '  사례 조회 : O — 상품명·상품 ID 로 다른 건을 찾아봅니다. 읽기 전용이고,',
+  '             확대·이동·보정은 검수 화면과 똑같이 됩니다. 판정 키만 잠깁니다.',
+  '             남의 판정은 기본으로 숨김 — [사람 판정] 버튼으로 켭니다.',
+  '',
+  '  단축키가 이상하면 (q·w·e·z 가 안 찍히는 등) →  WB.doctor()',
   '',
   '  저장은 처음엔 꺼져 있습니다. 켜려면 →  WB.arm()',
 ].join('\n'));
