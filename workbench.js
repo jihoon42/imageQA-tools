@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         HM 빅카드 검수 워크벤치
 // @namespace    hailmary-qa
-// @version      0.9.10
+// @version      0.9.11
 // @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·내 완료 재검토·저시력 지원 (토스 톤)
 // @match        https://hailmary-commerce.dev.onkakao.net/admin/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 /* =============================================================
- *
  *  저장은 처음엔 꺼져 있음. 상단 [저장 꺼짐] 버튼으로 켠다.
  *
  *  이 파일은 build.js 가 만든 산출물이다. 고칠 곳은 src/ 다.
@@ -18,6 +17,15 @@
  *   · 크게 손댔으면  node smoke.js  — 진짜 DOM 에 한 번 올려 본다 (npm i jsdom)
  *
  *  변경 이력
+ *   0.9.11 하단 안내를 진짜 한 줄로 — B·F·Y·O·? 다섯 개만 남겼다. 검수 화면의 세로 공간은
+ *         이미지 몫인데 안내가 세 줄을 먹고 있었다. 빠진 것들은 전부 ? 안에 있고,
+ *         J(고치기)는 잠긴 건을 열면 배너에 버튼으로 나오므로 안내에 없어도 찾게 된다.
+ *         · 안내가 아직 "미완료 ▸ 완료 ▸ 전체" 라고 말하고 있었다 — 전체 범위는 0.9.9 에서
+ *           없앴는데 키 표의 설명(desc)이 낡은 채였다. 표가 한 곳이라 고치는 곳도 한 곳.
+ *         · 상단 "저장 N건" 에 마우스를 올리면 설명이 나온다 — 서버의 완료 총수와 다른
+ *           숫자를 세는 칸이라(이 브라우저·워크벤치·새 판정만), 나란히 보이면 반드시
+ *           "왜 다르지?" 가 나오는 자리다. 물음이 생기는 자리에 답을 붙였다.
+ *
  *   0.9.10 폐기(discarded)된 건을 잠근다. 두 번째 probe 에서 서버에 discarded 가 50건 있고
  *         판정(human)은 비어 있다는 것이 드러났다 — 그러면 워크벤치 눈에는 "아직 판정이 없는 건"
  *         으로 보여서 잠기지 않은 채 열리고, Space 한 번에 폐기가 PASS 로 덮인다.
@@ -127,7 +135,7 @@
  * ============================================================= */
 (() => {
 'use strict';
-const VERSION = "0.9.10";
+const VERSION = "0.9.11";
 
 /* ══════ src/10-boot.js ══════════════════════════════════════════════ */
 /* --------------------------------------------------------------------------
@@ -315,7 +323,9 @@ const BY_CODE = Object.fromEntries(CODES.map(c => [c.c, c]));
  *
  *  virtual:1  키 핸들러가 다루지 않고 안내에만 나오는 것 (휠·드래그·Esc·Tab).
  *  expand     그 자리에 목록을 펼친다. 지금은 'codes' 하나뿐.
- *  hint:1     하단 한 줄 안내에 넣는다. 자주 쓰는 것만.
+ *  hint:1     하단 한 줄 안내에 넣는다. 안내는 진짜 한 줄이어야 한다 — 검수 화면의
+ *             세로 공간은 이미지 몫이다. 4~5개를 넘기면 접혀서 두 줄이 되니 아껴 쓴다.
+ *             (hintDesc 가 있으면 안내에는 그 짧은 쪽을 쓴다)
  *
  *  ★ 키를 더할 때: 이미 쓰는 글자인지 눈으로 세지 말고 node check.js 를 돌려라.
  *    이슈 코드 21개(q w e r t a s d z x c v 1~9)와의 충돌까지 같이 본다.
@@ -330,19 +340,19 @@ const KEY_ROWS = [
   { k:'arrowleft',  show:'←',     group:'판정', desc:'이전 건', scope:'review', act:() => prev() },
   { k:"'",          show:"'",     group:'판정', desc:'메시지 입력', scope:'review', act:() => el.msg.focus() },
   { k:'u',          show:'U',     group:'판정', desc:'auto 판정 보기', scope:'review', act:() => peekAuto() },
-  { k:'j',          show:'J',     group:'판정', desc:'고치기 — 잠긴 건을 푼다', scope:'review', hint:1, act:() => unlock() },
+  { k:'j',          show:'J',     group:'판정', desc:'고치기 — 잠긴 건을 푼다', scope:'review', act:() => unlock() },
 
   /* ── 큐 ── */
-  { k:'b',          show:'B',     group:'큐', desc:'범위 — 미완료 ▸ 완료 ▸ 전체', scope:'review', hint:1, act:() => cycleScope() },
+  { k:'b',          show:'B',     group:'큐', desc:'범위 — 미완료 ⇄ 완료', scope:'review', hint:1, act:() => cycleScope() },
 
   /* ── 이슈 코드 21개는 20-codes.js 에서 펼친다 ── */
   { expand:'codes', group:'이슈 코드' },
 
   /* ── 코드 검색 ── */
-  { k:'f',          show:'F',     group:'코드 검색', desc:'검색창으로', scope:'review', hint:1, act:() => focusFind() },
+  { k:'f',          show:'F',     group:'코드 검색', desc:'검색창으로', hintDesc:'코드 검색', scope:'review', hint:1, act:() => focusFind() },
 
   /* ── 복사 ── */
-  { k:'y',          show:'Y',     group:'복사', desc:'label 만 복사 (⇧Y 는 전체)', scope:'view', hint:1,
+  { k:'y',          show:'Y',     group:'복사', desc:'label 복사', hintDesc:'label 복사 (⇧Y 전체)', scope:'view', hint:1,
     act:(e) => {
       // 조회 창이 떠 있으면 대상은 거기서 고른 사례다
       const inLook = el.mLook.classList.contains('show');
@@ -351,12 +361,12 @@ const KEY_ROWS = [
     } },
 
   /* ── 사례 조회 ── */
-  { k:'o',          show:'O',     group:'사례 조회', desc:'다른 사례 찾아보기 (읽기 전용)', scope:'review', hint:1, act:() => openLook() },
+  { k:'o',          show:'O',     group:'사례 조회', desc:'다른 사례 찾아보기 (읽기 전용)', hintDesc:'사례 조회', scope:'review', hint:1, act:() => openLook() },
 
   /* ── 이미지 ── */
-  { show:'휠',      group:'이미지', desc:'확대', virtual:1, hint:1 },
-  { show:'드래그',   group:'이미지', desc:'이동', virtual:1, hint:1 },
-  { k:'0',          show:'0',     group:'이미지', desc:'화면맞춤', scope:'view', hint:1, act:() => resetView() },
+  { show:'휠',      group:'이미지', desc:'확대', virtual:1 },
+  { show:'드래그',   group:'이미지', desc:'이동', virtual:1 },
+  { k:'0',          show:'0',     group:'이미지', desc:'화면맞춤', scope:'view', act:() => resetView() },
   { k:'m',          show:'M',     group:'이미지', desc:'돋보기', scope:'view', act:() => setPref('loupe',  !S.pref.loupe) },
   { k:'g',          show:'G',     group:'이미지', desc:'눈금',   scope:'review', act:() => setPref('guides', !S.pref.guides) },
   { k:'l',          show:'L',     group:'이미지', desc:'확대연동', scope:'view', act:() => setPref('link',   !S.pref.link) },
@@ -375,7 +385,7 @@ const KEY_ROWS = [
   { k:'-',  show:'-',  group:'화면', desc:'글자 작게', scope:'view',   act:() => setPref('ui', Math.max(85,  S.pref.ui - 15)) },
   { k:'=',  show:'=',  group:'화면', desc:'글자 크게', scope:'view',   act:() => setPref('ui', Math.min(200, S.pref.ui + 15)) },
   { k:'/',  show:'/',  group:'화면', desc:'코드 설명', scope:'review', act:() => setPref('desc', !S.pref.desc) },
-  { k:'?',  show:'?',  group:'화면', desc:'단축키 창', scope:'review', hint:1, act:() => modal(el.mKeys, true) },
+  { k:'?',  show:'?',  group:'화면', desc:'단축키 창', hintDesc:'단축키', scope:'review', hint:1, act:() => modal(el.mKeys, true) },
   { show:'Tab',   group:'화면', desc:'요소 이동',   virtual:1 },
   { show:'Esc',   group:'화면', desc:'닫기 · 되돌리기', virtual:1 },
   { show:'Alt+W', group:'화면', desc:'워크벤치 열기', virtual:1 },
@@ -389,7 +399,7 @@ const KEY_NOTES = {
   '판정': '<b>J(고치기)</b> — 이미 판정이 있는 건은 <b>잠긴 채로</b> 열립니다. ' +
           '손버릇으로 Space 를 눌러 공들인 REJECT 를 빈 PASS 로 덮는 일을 막기 위해서입니다. ' +
           '고칠 때만 J 를 누르세요.',
-  '큐': '<b>B(범위)</b> — <b>미완료</b>(기본) ▸ <b>완료</b> ▸ <b>전체</b> 를 돌아갑니다. ' +
+  '큐': '<b>B(범위)</b> — <b>미완료</b>(기본)와 <b>완료</b>를 오갑니다. ' +
         '완료 범위에서는 내가 이미 판정한 건을 저장된 코드·메시지까지 되살려 다시 봅니다. ' +
         '쪽 넘기기는 상단 ◀ ▶ 입니다.',
   '이슈 코드': '키보드 위치가 그대로 코드 그룹 순서입니다.',
@@ -1551,6 +1561,12 @@ function loadErr(e) { toast(String(e.message || e), true); }
 function renderStats() {
   const s = S.stats;
   el.sst.textContent = `저장 ${s.n}건` + (s.n ? ` · auto 판정일치 ${Math.round(s.agreeVerdict / s.n * 100)}%` : '');
+  /* 이 숫자는 서버의 완료 총수와 다른 것을 센다 — 옆에 나란히 보이면 반드시
+   * "왜 다르지?" 가 나오므로, 물음이 생기는 자리에 답을 붙여 둔다. */
+  el.sst.title = '이 브라우저에서 워크벤치로 보낸 새 판정의 수입니다 (내 작업 속도·auto 대조용 개인 통계).\n' +
+    '상단 [범위: 완료] 의 총건수는 서버가 센 내 완료 전체라서 보통 이 숫자보다 큽니다 —\n' +
+    '원래 라벨링 화면에서 판정한 것, 다른 브라우저에서 한 것, WB.reset() 이전 것은 여기 안 들어가고,\n' +
+    '같은 건을 다시 저장한 것도 두 번 세지 않습니다.';
 }
 
 /* --------------------------- 복사 ---------------------------
@@ -1918,11 +1934,10 @@ for (const r of keyRows()) if (r.k && r.act) {
 /* 조회 창이 떠 있을 때 통과시킬 키 — 손으로 적던 목록을 표에서 뽑아 쓴다 */
 const LOOK_KEYS = new Set([...KEYMAP.values()].filter(r => r.scope === 'view').map(r => r.k));
 
-/* 하단 한 줄 안내 */
+/* 하단 한 줄 안내 — 진짜 한 줄. 나머지는 전부 ? 안에 있다. */
 function hintHtml() {
   return keyRows().filter(r => r.hint)
-    .map(r => `<kbd>${esc(r.show)}</kbd> ${r.desc}`).join(' · ') +
-    ' · 가운데 <b>경계선</b>으로 좌우 폭 조절';
+    .map(r => `<kbd>${esc(r.show)}</kbd> ${r.hintDesc || r.desc}`).join(' · ');
 }
 
 /* 단축키 창 — 표를 group 순서대로 묶어 그린다.
@@ -2241,7 +2256,7 @@ console.log([
   '단축키 (src/25-keys.js 의 표에서 자동 생성 — 안내와 실제가 어긋날 수 없습니다)',
   keyHelpText(),
   '',
-  '  내 완료  : B — 범위를 미완료 ▸ 완료 ▸ 전체 로 돌립니다. 완료 범위에서는',
+  '  내 완료  : B — 미완료 ⇄ 완료 를 오갑니다. 완료 범위에서는',
   '             내가 이미 판정한 건을 저장된 코드·메시지까지 되살려 다시 봅니다.',
   '             판정이 있는 건은 잠긴 채로 열립니다 — 고치려면 J 를 먼저.',
   '             쪽 넘기기는 상단 ◀ ▶ · 콘솔에서는 WB.page(2)',
