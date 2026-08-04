@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         HM 빅카드 검수 워크벤치
 // @namespace    hailmary-qa
-// @version      0.9.7
-// @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·저시력 지원 (토스 톤)
+// @version      0.9.8
+// @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·완료 재검토·저시력 지원 (토스 톤)
 // @match        https://hailmary-commerce.dev.onkakao.net/admin/*
 // @grant        none
 // @run-at       document-idle
@@ -11,75 +11,93 @@
  *
  *  저장은 처음엔 꺼져 있음. 상단 [저장 꺼짐] 버튼으로 켠다.
  *
+ *  이 파일은 build.js 가 만든 산출물이다. 고칠 곳은 src/ 다.
+ *   · 단축키를 바꾸려면  src/25-keys.js  한 곳만 고친다 (동작·도움말이 함께 따라온다)
+ *   · 이슈 코드를 바꾸려면 src/20-codes.js
+ *   · 붙여넣기 전에는  node check.js  — 문법·키 충돌·빌드 최신 여부를 한 번에 본다
+ *   · 크게 손댔으면  node smoke.js  — 진짜 DOM 에 한 번 올려 본다 (npm i jsdom)
+ *
  *  변경 이력
+ *   0.9.8 한 장짜리 스크립트를 src/ 11개 모듈로 쪼개고 build.js 로 다시 한 장을 만든다.
+ *         배포·붙여넣기 방식은 그대로다 — 산출물은 여전히 파일 하나다.
+ *         · 단축키가 한 곳(25-keys.js)에서만 정의된다. 실제 동작 · 단축키 창 ·
+ *           하단 한 줄 안내 · 조회 창에서 통과시킬 키 목록이 전부 그 표에서 생성된다.
+ *           전에는 다섯 군데에 흩어져 있어서 도움말과 실제가 어긋날 수 있었다.
+ *         · 뷰어를 makeViewer() 팩토리로. 'i'+id / 'p'+id 규약이 한 함수 안으로 들어갔다.
+ *         · node check.js — 문법 · 키 충돌 · 코드 표 완결성 · dist 최신 여부를 한 번에.
+ *           빌드를 잊고 옛 dist 를 붙여넣는 사고가 여기서 걸린다.
+ *         · "내 완료" — 큐 범위를 미완료 ▸ 완료 ▸ 전체로 돌려가며 본다 (B 키).
+ *           이미 판정한 건은 저장된 판정 · 코드 · 메시지를 그대로 되살려 열고,
+ *           잠근 채로 연다. 고치려면 J(고치기)를 먼저 눌러야 한다 —
+ *           손버릇으로 Space 를 눌러 공들인 REJECT 를 빈 PASS 로 덮는 사고를 막는다.
+ *           재저장은 통계에 두 번 세지 않는다.
+ *         · 완료 목록이 비어 나오면 서버의 label_status=mine 이 완료 건을 빼고 주는 것이다.
+ *           WB.probe() 로 어떤 label_status 값이 무엇을 돌려주는지 읽기 전용으로 확인한다.
+ *
  *   0.9.7 조회 창에서 남의 판정(사람)을 기본으로 숨김. 참고하라는 지침은 그대로지만,
- *        판정을 먼저 읽으면 눈이 그쪽으로 끌린다 — 스스로 보고 나서 대조하고 싶으면
- *        숨긴 채 쓰고, 필요할 때만 [사람 판정] 버튼으로 켠다(설정은 기억됨).
- *        auto 판정은 지금처럼 목록에 그대로 둔다.
- *        · q·w·e·z 가 입력창에 안 찍히는 문제 재발 — 0.9.3 의 evictGhosts 는
- *          '내 앞에 이미 있던' 유령만 치울 수 있었다. 이번에 막은 두 갈래:
- *          (1) 내 뒤에 로드되는 구버전(Tampermonkey 에 옛 항목이 같이 켜진 경우).
- *              0.5초마다 순찰하며 낯선 워크벤치 DOM 을 걷어내고 window.WB 를 되찾는다.
- *              더 새 버전이 보이면 싸우지 않고 내가 비킨다.
- *          (2) 관리자 화면이 body 를 갈아끼우면 host 가 문서에서 떨어지는데 wrap 은
- *              show 인 채다 — 보이지 않는 창이 글자를 먹는다. 떨어져 있으면 단축키를
- *              통째로 양보하고, 순찰이 host 를 도로 붙인다.
- *          어느 쪽이었는지 확인용 WB.doctor() 추가 — 또 재발하면 이 출력부터 보자.
+ *         판정을 먼저 읽으면 눈이 그쪽으로 끌린다 — 스스로 보고 나서 대조하고 싶으면
+ *         숨긴 채 쓰고, 필요할 때만 [사람 판정] 버튼으로 켠다(설정은 기억됨).
+ *         auto 판정은 지금처럼 목록에 그대로 둔다.
+ *         · q·w·e·z 가 입력창에 안 찍히는 문제 재발 — 0.9.3 의 evictGhosts 는
+ *           '내 앞에 이미 있던' 유령만 치울 수 있었다. 이번에 막은 두 갈래:
+ *           (1) 내 뒤에 로드되는 구버전(Tampermonkey 에 옛 항목이 같이 켜진 경우).
+ *               0.5초마다 순찰하며 낯선 워크벤치 DOM 을 걷어내고 window.WB 를 되찾는다.
+ *               더 새 버전이 보이면 싸우지 않고 내가 비킨다.
+ *           (2) 관리자 화면이 body 를 갈아끼우면 host 가 문서에서 떨어지는데 wrap 은
+ *               show 인 채다 — 보이지 않는 창이 글자를 먹는다. 떨어져 있으면 단축키를
+ *               통째로 양보하고, 순찰이 host 를 도로 붙인다.
+ *           어느 쪽이었는지 확인용 WB.doctor() 추가 — 또 재발하면 이 출력부터 보자.
+ *
  *   0.9.6 Y = label 만 복사. 질문할 때 필요한 건 그것 하나라, 나머지(상품명·주소·
- *        고른 코드)는 Shift+Y 로 뺐다. 정보 상자에도 [label] · [전체] 두 버튼.
- *        · 조회 창에서도 휠 확대 · 드래그 이동 · 대비/밝기 · 돋보기가 다 된다.
- *          확대·이동 기계를 패널 4개(R·O·LR·LO)가 함께 쓰도록 일반화했다.
- *          모달이 떠 있으면 단축키를 통째로 막던 것도, 조회 창에 한해
- *          보기·보정 키만 통과시킨다 (판정·코드 키는 그대로 잠긴 채).
- *        · 창을 크게(최대 1560px) 하고 목록을 왼쪽, 뷰어를 오른쪽으로 돌렸다.
- *        · 남의 판정을 눌러야 보이게 했던 것을 되돌렸다 — 참고하라는 게 지침이고,
- *          그러면 목록에서 바로 보이는 편이 맞다.
+ *         고른 코드)는 Shift+Y 로 뺐다. 정보 상자에도 [label] · [전체] 두 버튼.
+ *         · 조회 창에서도 휠 확대 · 드래그 이동 · 대비/밝기 · 돋보기가 다 된다.
+ *           확대·이동 기계를 패널 4개(R·O·LR·LO)가 함께 쓰도록 일반화했다.
+ *           모달이 떠 있으면 단축키를 통째로 막던 것도, 조회 창에 한해
+ *           보기·보정 키만 통과시킨다 (판정·코드 키는 그대로 잠긴 채).
+ *         · 창을 크게(최대 1560px) 하고 목록을 왼쪽, 뷰어를 오른쪽으로 돌렸다.
+ *         · 남의 판정을 눌러야 보이게 했던 것을 되돌렸다 — 참고하라는 게 지침이고,
+ *           그러면 목록에서 바로 보이는 편이 맞다. (0.9.7 에서 다시 뒤집힘)
+ *
  *   0.9.5 O 키 — 사례 조회. 상품명·상품 ID 로 다른 건을 찾아본다. 팀 토의 중에
- *        Esc 로 빠져나가 원래 화면에서 다시 찾아갈 필요가 없다.
- *        읽기 전용이다. 그리고 그건 약속이 아니라 구조다 —
- *          · 조회 결과는 LK.items 에만 담기고 S.queue 에 들어가지 않는다.
- *            save() 는 cur() = S.queue[S.i] 만 보므로 저장될 경로가 없다.
- *          · 조회 창은 모달이라 열려 있는 동안 판정 단축키가 통째로 잠긴다.
- *            "내 큐인 줄 알고 Space 를 눌렀다" 가 이 기능의 진짜 위험인데 거기서 막힌다.
+ *         Esc 로 빠져나가 원래 화면에서 다시 찾아갈 필요가 없다.
+ *         읽기 전용이다. 그리고 그건 약속이 아니라 구조다 —
+ *           · 조회 결과는 LK.items 에만 담기고 S.queue 에 들어가지 않는다.
+ *             save() 는 cur() = S.queue[S.i] 만 보므로 저장될 경로가 없다.
+ *           · 조회 창은 모달이라 열려 있는 동안 판정 단축키가 통째로 잠긴다.
+ *             "내 큐인 줄 알고 Space 를 눌렀다" 가 이 기능의 진짜 위험인데 거기서 막힌다.
+ *
  *   0.9.4 Y 키 — 지금 보고 있는 건을 "질문용 한 덩어리"로 클립보드에 복사한다.
- *        상품명 · row · product · label_row_id · 두 이미지 주소 · 내가 고른 코드.
- *        팀에 물어보려고 Esc 로 빠져나가 원래 화면에서 다시 찾아 적을 필요가 없다.
- *        · 코드 행 Alt+클릭 = 그 코드명만 복사(토글되지 않음). 코드 행은 클릭이 곧
- *          토글이라 지금까지 긴 snake_case 코드명을 드래그로 집을 수가 없었다.
- *        · 저장 직전 "이 건이 내 큐에서 온 것인가"를 확인하는 자물쇠를 채웠다.
- *          지금은 큐가 곧 내 것이라 항상 참이지만, 앞으로 남의 건을 열람하는
- *          기능이 붙더라도 저장 경로가 그쪽으로 열리지 않는다.
+ *         상품명 · row · product · label_row_id · 두 이미지 주소 · 내가 고른 코드.
+ *         · 코드 행 Alt+클릭 = 그 코드명만 복사(토글되지 않음).
+ *         · 저장 직전 "이 건이 내 큐에서 온 것인가"를 확인하는 자물쇠를 채웠다.
+ *
  *   0.9.3 두 벌이 겹쳐 뜨면 뒤쪽 인스턴스가 코드 단축키 글자(q·w·e·z…)를 가로채
- *        입력창에 안 찍히던 문제 — 다시 붙여넣으면 구버전을 내리고 교체한다.
- *        단축키를 양보하는 기준도 "그 노드인가" 에서 "글자를 받는 요소인가" 로 바꿈
- *        · 검수자 이름 창에서 [취소] 버튼이 카드 밖으로 삐져나가던 것 수정
+ *         입력창에 안 찍히던 문제 — 다시 붙여넣으면 구버전을 내리고 교체한다.
+ *         단축키를 양보하는 기준도 "그 노드인가" 에서 "글자를 받는 요소인가" 로 바꿈
+ *         · 검수자 이름 창에서 [취소] 버튼이 카드 밖으로 삐져나가던 것 수정
+ *
  *   0.9.2 UI 를 이슈 기록부와 같은 토스(TDS) 톤으로 — Pretendard · 그레이 스케일
- *        · 큰 라운드 · 컨트롤 높이 통일. 색값은 토스 색조를 유지하되 명도를 내려
- *        3개 테마 57개 조합 전부 AAA(7:1) 이상 (palette.py 로 검증)
- *        · 검수 이미지 둘레는 테마와 무관하게 중립 회색 고정 — 주변 색이 밝으면
- *          같은 이미지도 그림자·반사·배경 확장 판단이 달라진다
- *   0.9.1 F 키 — 이슈 코드 검색. 코드명·공식 설명·경계 메모를 함께 훑기 때문에
- *        'shadow' 로도 '그림자' 로도 같은 코드가 걸린다. Enter 로 첫 결과 선택,
- *        Esc 로 해제. 이미 고른 코드는 검색어와 상관없이 항상 목록에 남는다
- *   0.9  U 키 — auto 판정을 그 건에 한해 열어보기 (기본은 계속 숨김)
- *   0.8  이미 저장한 건으로 되돌아가면 판정·코드·메시지를 복원하고
- *        덮어쓰기임을 안내 · 재저장은 통계에 중복 집계하지 않음
- *   0.7  코드 정책 변경 감지 — 서버의 이슈 코드 목록과 내장 목록이 다르면
- *        경고를 띄우고 저장을 자동으로 끔
- *   0.6  단축키 안내를 한 줄로 축약(? 로 전체 보기) · 저장 모드를 버튼으로
- *        · 두 이미지 사이 경계선을 끌어 좌우 폭 조절(기본 62:38)
- *        · 이미지 보정을 슬라이더 창으로 통합
- *   0.5  상단 [검수자] · [큐 새로고침] 버튼 — 연 상태에서 이름 변경·재조회
- *   0.4  저시력 지원 — 고대비 3테마 · 글자 크기 · 이미지 보정 · 돋보기 · ARIA
- *        · Tampermonkey 지원 · 라벨러 이름 입력 화면
- *   0.3  코드 표시를 영어 코드명 + 공식 설명 토글로 교체 · 확대 연동 기본 해제
- *   0.2  초시계 제거 · 65% 눈금선 · 이미지 화면맞춤 초기화
- *   0.1  최초 — 동기 확대 · 코드 단축키 · 메시지 자동 초안 · auto 판정 대조
+ *         · 큰 라운드 · 컨트롤 높이 통일. 색값은 토스 색조를 유지하되 명도를 내려
+ *         3개 테마 57개 조합 전부 AAA(7:1) 이상 (palette.py 로 검증)
+ *         · 검수 이미지 둘레는 테마와 무관하게 중립 회색 고정
+ *
+ *   0.9.1 F 키 — 이슈 코드 검색. 코드명·공식 설명·경계 메모를 함께 훑는다.
+ *
+ *   0.9   U 키 — auto 판정을 그 건에 한해 열어보기 (기본은 계속 숨김)
+ *   0.8   이미 저장한 건으로 되돌아가면 판정·코드·메시지를 복원하고 덮어쓰기임을 안내
+ *   0.7   코드 정책 변경 감지 — 서버 코드 목록과 내장 목록이 다르면 저장을 자동으로 끔
+ *   0.6   단축키 안내 축약 · 저장 모드를 버튼으로 · 좌우 폭 조절 · 이미지 보정 창
+ *   0.5   상단 [검수자] · [큐 새로고침] 버튼
+ *   0.4   저시력 지원 — 고대비 3테마 · 글자 크기 · 이미지 보정 · 돋보기 · ARIA
+ *   0.3   코드 표시를 영어 코드명 + 공식 설명 토글로 교체
+ *   0.2   초시계 제거 · 65% 눈금선 · 이미지 화면맞춤 초기화
+ *   0.1   최초 — 동기 확대 · 코드 단축키 · 메시지 자동 초안 · auto 판정 대조
  * ============================================================= */
 (() => {
 'use strict';
-const VERSION = '0.9.7';
+const VERSION = "0.9.8";
 
+/* ══════ src/10-boot.js ══════════════════════════════════════════════ */
 /* --------------------------------------------------------------------------
  *  같은 페이지에 워크벤치가 두 벌 뜨면 안 된다.
  *
@@ -132,13 +150,26 @@ const BASE = location.origin + '/admin/';
 const LS_STATS = 'hm_wb_stats_v1';
 const LS_PREF  = 'hm_wb_pref_v1';
 
+/* ══════ src/20-codes.js ═════════════════════════════════════════════ */
 /* ---------------------------------------------------------------
- *  21개 이슈 코드
+ *  21개 이슈 코드 — 이 파일은 코드가 아니라 데이터다.
+ *
+ *  판정 정책이 바뀌면 여기만 고친다. 그러면 diff 가 "정책이 이렇게 바뀌었다" 로
+ *  읽히고, 리뷰할 사람이 자바스크립트를 읽지 않아도 된다.
+ *  단축키·검색 색인·자동 초안·안내가 전부 여기서 파생된다.
+ *
+ *    c = 서버에 보내는 코드명. 서버 목록과 다르면 checkCodeDrift 가 저장을 끈다.
+ *    k = 단축키. 키보드 위치가 그대로 코드 그룹(g) 순서다.
+ *    g = 화면에서 묶어 보여줄 그룹 (A~F)
  *    d = 툴에 붙어 있는 공식 설명 (원문 그대로, 손대지 않음)
- *    t = 경계 판단 메모 (가이드 2-1절·예시집에서 정리)
+ *    t = 경계 판단 메모 (가이드 2-1절·예시집에서 정리). 검색이 여기까지 훑는다.
  *    m = REJECT 메시지 자동 초안
- *    z = 확대해야 잡히는 코드 / r = 방향이 반대인 코드
+ *    z = 확대해야 잡히는 코드 / r = 방향이 반대인 코드 (화면에 [확대]·[반대] 로 표시)
+ *
+ *  ★ 고친 뒤에는 node check.js — 필드 누락·중복·단축키 충돌을 여기서 잡는다.
+ *    JSON 이 아니라 JS 로 두는 이유는 이 주석과 경계 메모를 함께 두기 위해서다.
  * --------------------------------------------------------------- */
+/* @check:begin CODES */
 const CODES = [
  {c:'hallucinated_added_object', k:'q', g:'A',
   d:'입력에 없던 상품, 소품, 그래픽, 빛, 연기, 오브젝트가 새로 생김',
@@ -225,9 +256,146 @@ const CODES = [
   t:'애매하면 어떤 점이 부적합한지 메시지에 구체적으로.',
   m:'커머스에 부적합한 이미지'},
 ];
+/* @check:end */
 const BY_KEY  = Object.fromEntries(CODES.map(c => [c.k, c]));
 const BY_CODE = Object.fromEntries(CODES.map(c => [c.c, c]));
 
+/* ══════ src/25-keys.js ══════════════════════════════════════════════ */
+/* --------------------------- 단축키 (단일 진실 원천) ---------------------------
+ *  키가 여기 한 곳에만 적힌다.
+ *
+ *  전에는 같은 사실이 다섯 군데에 흩어져 있었다 — BY_KEY(코드 토글) · act 맵(동작) ·
+ *  LOOK_KEYS(조회 창에서 통과시킬 키) · 단축키 창의 HTML · 콘솔 도움말.
+ *  키 하나를 옮기면 다섯 곳을 다 고쳐야 했고, 실제로는 안내만 옛 키를 가리킨 채
+ *  남기 쉬웠다. 안내가 틀리면 안내가 없느니만 못하다.
+ *
+ *  이제 아래 표에서 넷이 전부 생성된다:
+ *    · 실제 동작        KEYMAP        (80-keyboard.js)
+ *    · 조회 창 통과 목록 LOOK_KEYS     (scope === 'view' 인 것만)
+ *    · 단축키 창        renderKeyHelp()
+ *    · 하단 한 줄 안내   hintHtml()    (hint:1 인 것만)
+ *
+ *  scope — 사례 조회 창(모달)이 떠 있을 때 통과시킬지를 가른다.
+ *    'review'  검수 화면 전용. 모달이 떠 있으면 잠긴다. 판정·이슈 코드가 여기.
+ *              "남의 건을 띄워놓고 내 큐인 줄 알고 Space 를 눌렀다" 를 막는 자리다.
+ *    'view'    보기·보정. 조회 창에서도 통과한다 — 확대·대비를 못 만지면
+ *              결국 창을 닫고 나가게 되어 조회 기능의 의미가 없어진다.
+ *
+ *  virtual:1  키 핸들러가 다루지 않고 안내에만 나오는 것 (휠·드래그·Esc·Tab).
+ *  expand     그 자리에 목록을 펼친다. 지금은 'codes' 하나뿐.
+ *  hint:1     하단 한 줄 안내에 넣는다. 자주 쓰는 것만.
+ *
+ *  ★ 키를 더할 때: 이미 쓰는 글자인지 눈으로 세지 말고 node check.js 를 돌려라.
+ *    이슈 코드 21개(q w e r t a s d z x c v 1~9)와의 충돌까지 같이 본다.
+ * --------------------------------------------------------------- */
+/* @check:begin KEY_ROWS */
+const KEY_ROWS = [
+  /* ── 판정 ── */
+  { k:' ',          show:'Space', group:'판정', desc:'PASS',   scope:'review', act:() => save('pass') },
+  { k:'enter',      show:'Enter', group:'판정', desc:'REJECT', scope:'review', act:() => save('reject') },
+  { k:'n',          show:'N',     group:'판정', desc:'건너뛰기', scope:'review', act:() => next() },
+  { k:'arrowright', show:'→',     group:'판정', desc:'다음 건', scope:'review', act:() => next() },
+  { k:'arrowleft',  show:'←',     group:'판정', desc:'이전 건', scope:'review', act:() => prev() },
+  { k:"'",          show:"'",     group:'판정', desc:'메시지 입력', scope:'review', act:() => el.msg.focus() },
+  { k:'u',          show:'U',     group:'판정', desc:'auto 판정 보기', scope:'review', act:() => peekAuto() },
+  { k:'j',          show:'J',     group:'판정', desc:'고치기 — 잠긴 건을 푼다', scope:'review', hint:1, act:() => unlock() },
+
+  /* ── 큐 ── */
+  { k:'b',          show:'B',     group:'큐', desc:'범위 — 미완료 ▸ 완료 ▸ 전체', scope:'review', hint:1, act:() => cycleScope() },
+
+  /* ── 이슈 코드 21개는 20-codes.js 에서 펼친다 ── */
+  { expand:'codes', group:'이슈 코드' },
+
+  /* ── 코드 검색 ── */
+  { k:'f',          show:'F',     group:'코드 검색', desc:'검색창으로', scope:'review', hint:1, act:() => focusFind() },
+
+  /* ── 복사 ── */
+  { k:'y',          show:'Y',     group:'복사', desc:'label 만 복사 (⇧Y 는 전체)', scope:'view', hint:1,
+    act:(e) => {
+      // 조회 창이 떠 있으면 대상은 거기서 고른 사례다
+      const inLook = el.mLook.classList.contains('show');
+      const it = inLook ? LK.items[LK.sel] : cur();
+      if (e && e.shiftKey) copyRefOf(it, inLook); else copyLabel(it);
+    } },
+
+  /* ── 사례 조회 ── */
+  { k:'o',          show:'O',     group:'사례 조회', desc:'다른 사례 찾아보기 (읽기 전용)', scope:'review', hint:1, act:() => openLook() },
+
+  /* ── 이미지 ── */
+  { show:'휠',      group:'이미지', desc:'확대', virtual:1, hint:1 },
+  { show:'드래그',   group:'이미지', desc:'이동', virtual:1, hint:1 },
+  { k:'0',          show:'0',     group:'이미지', desc:'화면맞춤', scope:'view', hint:1, act:() => resetView() },
+  { k:'m',          show:'M',     group:'이미지', desc:'돋보기', scope:'view', act:() => setPref('loupe',  !S.pref.loupe) },
+  { k:'g',          show:'G',     group:'이미지', desc:'눈금',   scope:'review', act:() => setPref('guides', !S.pref.guides) },
+  { k:'l',          show:'L',     group:'이미지', desc:'확대연동', scope:'view', act:() => setPref('link',   !S.pref.link) },
+
+  /* ── 보정 ── */
+  { k:',',  show:',',  group:'보정', desc:'대비 −', scope:'view', act:() => setFx('contrast', S.pref.fx.contrast - 10) },
+  { k:'.',  show:'.',  group:'보정', desc:'대비 +', scope:'view', act:() => setFx('contrast', S.pref.fx.contrast + 10) },
+  { k:'[',  show:'[',  group:'보정', desc:'밝기 −', scope:'view', act:() => setFx('bright',   S.pref.fx.bright - 10) },
+  { k:']',  show:']',  group:'보정', desc:'밝기 +', scope:'view', act:() => setFx('bright',   S.pref.fx.bright + 10) },
+  { k:'i',  show:'I',  group:'보정', desc:'색반전', scope:'view', act:() => setFx('invert', S.pref.fx.invert ? 0 : 1) },
+  { k:'k',  show:'K',  group:'보정', desc:'흑백',   scope:'view', act:() => setFx('gray',   S.pref.fx.gray ? 0 : 1) },
+  { k:'\\', show:'\\', group:'보정', desc:'초기화', scope:'view', act:() => resetFx() },
+
+  /* ── 화면 ── */
+  { k:'h',  show:'H',  group:'화면', desc:'테마',      scope:'view',   act:() => setPref('theme', {dark:'light', light:'mono', mono:'dark'}[S.pref.theme]) },
+  { k:'-',  show:'-',  group:'화면', desc:'글자 작게', scope:'view',   act:() => setPref('ui', Math.max(85,  S.pref.ui - 15)) },
+  { k:'=',  show:'=',  group:'화면', desc:'글자 크게', scope:'view',   act:() => setPref('ui', Math.min(200, S.pref.ui + 15)) },
+  { k:'/',  show:'/',  group:'화면', desc:'코드 설명', scope:'review', act:() => setPref('desc', !S.pref.desc) },
+  { k:'?',  show:'?',  group:'화면', desc:'단축키 창', scope:'review', hint:1, act:() => modal(el.mKeys, true) },
+  { show:'Tab',   group:'화면', desc:'요소 이동',   virtual:1 },
+  { show:'Esc',   group:'화면', desc:'닫기 · 되돌리기', virtual:1 },
+  { show:'Alt+W', group:'화면', desc:'워크벤치 열기', virtual:1 },
+];
+/* @check:end */
+
+/* 표에 담기 어려운 설명은 여기 붙인다. 키 목록 아래에 한 덩어리로 따라 나온다.
+ * 키 자체는 위 표에서 생성되므로, 이 글이 낡아도 키 안내가 틀리지는 않는다. */
+/* @check:begin KEY_NOTES */
+const KEY_NOTES = {
+  '판정': '<b>J(고치기)</b> — 이미 판정이 있는 건은 <b>잠긴 채로</b> 열립니다. ' +
+          '손버릇으로 Space 를 눌러 공들인 REJECT 를 빈 PASS 로 덮는 일을 막기 위해서입니다. ' +
+          '고칠 때만 J 를 누르세요.',
+  '큐': '<b>B(범위)</b> — <b>미완료</b>(기본) ▸ <b>완료</b> ▸ <b>전체</b> 를 돌아갑니다. ' +
+        '완료 범위에서는 내가 이미 판정한 건을 저장된 코드·메시지까지 되살려 다시 봅니다. ' +
+        '쪽 넘기기는 상단 ◀ ▶ 입니다.',
+  '이슈 코드': '키보드 위치가 그대로 코드 그룹 순서입니다.',
+  '코드 검색': '<kbd>Enter</kbd> 첫 결과 선택 · <kbd>Esc</kbd> 검색어 지우기<br>' +
+    '코드명뿐 아니라 <b>공식 설명·경계 메모</b>까지 훑습니다 — <b>shadow</b> 로도 <b>그림자</b> 로도 걸립니다.<br>' +
+    '띄어쓴 낱말은 모두 든 코드만 나옵니다(<b>배경 확장</b>). ' +
+    '<b>이미 고른 코드는 검색어와 상관없이 항상 남습니다</b> — 안 보이는 코드가 저장되는 일이 없도록.',
+  '복사': '<kbd>Shift</kbd>+<kbd>Y</kbd> 는 상품명 · row · product · label · 두 이미지 주소 · 고른 코드까지 한 덩어리.<br>' +
+    '코드 행 <kbd>Alt</kbd>+클릭 — 그 <b>코드명만</b> 복사합니다(고르기는 되지 않습니다).<br>' +
+    '조회 창이 떠 있으면 <kbd>Y</kbd>는 거기서 고른 사례의 label 을 복사합니다.',
+  '사례 조회': '열면 지금 건의 상품명이 미리 들어갑니다. 왼쪽에서 고르면 오른쪽 뷰어에 걸리고, ' +
+    '검수 화면과 똑같이 <b>휠 확대 · 드래그 이동 · 대비/밝기 · 돋보기</b>가 다 됩니다.<br>' +
+    '판정·코드 단축키만 잠깁니다 — 조회 중에 Space 를 눌러도 아무 일도 일어나지 않습니다.<br>' +
+    '<b>다른 검수자의 판정은 기본으로 숨깁니다</b> — 먼저 읽으면 판단이 끌려가서요. ' +
+    '필요하면 [사람 판정] 버튼으로 켭니다 (auto 판정은 항상 보임).',
+  '이미지': '두 이미지 사이 <b>경계선</b>을 끌면 좌우 폭이 바뀝니다. 더블클릭하면 기본값.',
+  '보정': '<b>대비를 올리면</b> 배경 확장의 이음새나 질감 차이가 잘 드러납니다 — ' +
+    'background_extension_unnatural 을 볼 때 먼저 쓰세요. 두 이미지에 함께 적용됩니다.',
+  '화면': '보기 설정은 이 브라우저에 기억됩니다. <b>테마 3종은 모두 AAA(7:1) 대비</b>로 맞춰져 있고, ' +
+    '검수 이미지 둘레만은 테마와 무관하게 중립 회색으로 고정입니다 — ' +
+    '주변이 밝으면 같은 이미지도 그림자·반사 판단이 달라지기 때문입니다.',
+};
+/* @check:end */
+
+/* 표를 펼쳐서 실제로 쓰는 줄 목록을 만든다. expand 자리는 여기서 채워진다. */
+function keyRows() {
+  const out = [];
+  for (const r of KEY_ROWS) {
+    if (r.expand !== 'codes') { out.push(r); continue; }
+    for (const c of CODES) {
+      out.push({ k:c.k, show:c.k.toUpperCase(), group:r.group, desc:c.c,
+                 scope:'review', code:c, act:() => toggle(c.c) });
+    }
+  }
+  return out;
+}
+
+/* ══════ src/30-state.js ═════════════════════════════════════════════ */
 /* ------------------------------- 상태 ------------------------------- */
 const DEF_PREF = { theme:'dark', ui:100, desc:false, link:false, guides:false,
                    draft:'short', showTimer:false, loupe:false, split:62,
@@ -239,8 +407,57 @@ const S = {
   q:'',           // 코드 검색어. 화면 필터일 뿐이라 저장하지 않는다 —
                   // 새로고침했는데 목록이 걸러진 채로 뜨면 코드가 사라진 줄 안다.
   done:{},        // 이 세션에서 저장한 건: label_row_id → {verdict, codes, msg}
+  /* ── 큐 범위 ("내 완료") ── */
+  scope:'todo',   // todo | done | all. 저장하지 않는다 — 새 세션은 항상 미완료부터.
+  page:1,
+  fetched:[],     // 서버가 준 것 그대로. S.queue 는 여기서 범위로 걸러낸 것이다.
+                  // (WB.raw 는 S 전체를 가리키는 다른 것이다 — 이름을 겹치게 두지 않는다)
+  total:0,
+  wasDone:new Set(), // 불러온 시점에 이미 판정이 있던 건. 재저장을 통계에 두 번 세지 않으려고.
+  open:new Set(),    // 이번에 잠금을 푼 건. 판정이 있는 건은 잠긴 채로 열린다.
   pref: loadPref(), stats: loadStats(),
 };
+
+/* ---------------------------------------------------------------
+ *  큐 범위 — 미완료 ▸ 완료 ▸ 전체
+ *
+ *  거르는 일은 서버가 아니라 여기서 한다. 서버의 label_status 가 'mine' 말고
+ *  어떤 값을 받는지 확인된 바가 없어서, 확인 안 된 파라미터를 넣는 대신
+ *  받은 목록을 판정 유무로 나눈다 (WB.probe() 로 확인할 수 있다).
+ *
+ *  그래서 한 가지 한계가 있다: 서버의 'mine' 이 미완료만 돌려준다면 완료 범위는
+ *  비어 보인다. 그때는 조용히 빈 화면을 보여주는 대신 왜 비었는지 말해 준다.
+ * --------------------------------------------------------------- */
+const SCOPES = {
+  todo: { label:'미완료', size:40,  pick: it => !humanOf(it) },
+  done: { label:'완료',   size:200, pick: it => !!humanOf(it) },
+  all:  { label:'전체',   size:200, pick: () => true },
+};
+const SCOPE_ORDER = ['todo', 'done', 'all'];
+const curScope = () => SCOPES[S.scope] || SCOPES.todo;
+
+/* 서버가 주는 human 의 모양을 확정하지 못했다 — 문자열일 수도, 객체일 수도,
+ * 항목에 납작하게 붙어 있을 수도 있다. 아는 모양을 다 받아주되, 판정(verdict)이
+ * 없으면 null 이다. "판정이 있다" 의 정의가 이 함수 하나로 모인다. */
+function humanOf(it) {
+  if (!it) return null;
+  const h = it.human != null && it.human !== '' ? it.human : null;
+  if (h == null) {
+    const v = it.human_verdict || '';
+    return v ? { verdict:v, codes: it.human_issue_codes || [], msg: it.human_message || '' } : null;
+  }
+  if (typeof h !== 'object') return { verdict:String(h), codes:[], msg:'' };
+  const v = h.verdict || h.human_verdict || '';
+  if (!v) return null;
+  return { verdict:v, codes: h.issue_codes || h.human_issue_codes || [], msg: h.message || h.human_message || '' };
+}
+/* 이 세션에서 저장한 것이 서버가 준 것보다 새롭다 — 되살릴 때는 이쪽이 먼저다 */
+function judgedOf(it) {
+  if (!it) return null;
+  const d = S.done[it.label_row_id];
+  return d ? { verdict:d.verdict, codes:d.codes, msg:d.msg, mine:1 } : humanOf(it);
+}
+const isLocked = it => !!judgedOf(it) && !S.open.has(it && it.label_row_id);
 function loadPref() {
   try { return Object.assign({}, DEF_PREF, JSON.parse(localStorage.getItem(LS_PREF)) || {}); }
   catch (e) { return Object.assign({}, DEF_PREF); }
@@ -250,6 +467,7 @@ function blank() { return { n:0, pass:0, reject:0, secs:[], agreeVerdict:0, code
 function loadStats() { try { return JSON.parse(localStorage.getItem(LS_STATS)) || blank(); } catch (e) { return blank(); } }
 function saveStats() { try { localStorage.setItem(LS_STATS, JSON.stringify(S.stats)); } catch (e) {} }
 
+
 /* ------------------------------- API ------------------------------- */
 async function api(path, opt) {
   const r = await fetch(BASE + path, Object.assign({ credentials:'same-origin' }, opt || {}));
@@ -257,12 +475,13 @@ async function api(path, opt) {
   if (!r.ok) throw new Error(r.status + ' ' + (await r.text()).slice(0, 200));
   return r.json();
 }
-const fetchQueue = (who, size) => api(
+const fetchQueue = (who, size, page) => api(
   `api/labeling/items?batch_id=all&label_status=mine&auto_verdict=all&human_verdict=all` +
-  `&issue_code=all&labeler_filter=&q=&page=1&page_size=${size}&labeler=${encodeURIComponent(who)}`);
+  `&issue_code=all&labeler_filter=&q=&page=${page || 1}&page_size=${size}&labeler=${encodeURIComponent(who)}`);
 const postSave = (p) => api('api/labeling/save',
   { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(p) });
 
+/* ══════ src/40-view.js ══════════════════════════════════════════════ */
 /* ------------------------------- UI -------------------------------
  * Pretendard — 이슈 기록부(issue-hub)와 같은 글꼴을 쓴다.
  * 문서에 심은 @font-face 는 shadow DOM 안에도 적용된다.
@@ -358,6 +577,8 @@ R.innerHTML = `<style>
  background:var(--panel);color:var(--fg);border:1px solid var(--edge);border-radius:var(--r-ctl);
  font:inherit;font-size:12.5px;font-weight:600;letter-spacing:-.01em;cursor:pointer;white-space:nowrap}
 .cb:hover{background:var(--hover);border-color:var(--fg)}
+.cb:disabled{opacity:.4;cursor:default}
+.cb:disabled:hover{background:var(--panel);border-color:var(--edge)}
 .cb[aria-pressed="true"]{background:var(--acc);color:var(--panel);border-color:var(--acc);font-weight:700}
 .cb i{font-style:normal;font-size:10.5px;line-height:1;padding:2px 4px;border-radius:5px;
  background:var(--hover);border:1px solid var(--edge);color:inherit;opacity:.9}
@@ -471,7 +692,15 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
 .rev{font-size:13px;line-height:1.6;background:var(--panel);border:1px solid var(--line);
  border-left:3px solid var(--acc);border-radius:var(--r-card);padding:11px 13px;box-shadow:var(--shadow)}
 .rev .h{color:var(--acc);font-weight:700;font-size:11px;letter-spacing:.08em;margin-bottom:4px}
+.rev .cb{margin-top:8px}
 .ok{color:var(--ok);font-weight:700}.no{color:var(--no);font-weight:700}
+
+/* 잠긴 건 — 이미 판정이 있어서 [고치기](J) 를 눌러야 저장되는 상태.
+   버튼을 아예 지우지는 않는다. 누르면 왜 안 되는지 말해 주는 편이,
+   버튼이 사라져서 "고장났나" 하는 것보다 낫다. */
+.wrap.locked .rev{border-left-color:var(--warn)}
+.wrap.locked .rev .h{color:var(--warn)}
+.wrap.locked .acts .bp,.wrap.locked .acts .br{opacity:.42;filter:grayscale(.7)}
 .hint{font-size:12.5px;color:var(--mut);line-height:1.8}
 
 /* ─── 겹쳐 뜨는 것들 ─── */
@@ -552,6 +781,10 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
   <button class="cb arm" id="bArm" data-on="0" aria-pressed="false">저장 꺼짐</button>
   <button class="cb" id="bWho" aria-label="검수자 이름 변경">검수자: –</button>
   <button class="cb" id="bReload" aria-label="작업 큐 다시 불러오기">큐 새로고침</button>
+  <button class="cb" id="bScope" aria-label="큐 범위 — 미완료 · 완료 · 전체"
+          title="이미 판정한 건을 다시 보려면 [완료] 로 돌리세요">범위: 미완료<i>B</i></button>
+  <button class="cb" id="bPgP" aria-label="이전 쪽">◀</button>
+  <button class="cb" id="bPgN" aria-label="다음 쪽">▶</button>
   <span class="mut" id="pos">–</span><span class="mut" id="tmr" style="display:none"></span>
   <div class="ctl" role="group" aria-label="보기 설정">
    <button class="cb" id="bTheme">테마: 어두움<i>H</i></button>
@@ -645,29 +878,9 @@ kbd{border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-size:11
 
  <div class="modal" id="mKeys" role="dialog" aria-label="단축키"><div class="card">
    <h2>단축키</h2>
-   <div class="ks">
-     <b>판정</b><span><kbd>Space</kbd> PASS · <kbd>Enter</kbd> REJECT · <kbd>N</kbd> 건너뛰기 · <kbd>←</kbd><kbd>→</kbd> 앞뒤 이동 · <kbd>'</kbd> 메시지 입력 · <kbd>U</kbd> auto 판정 보기</span>
-     <b>이슈 코드</b><span>A그룹 <kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd><kbd>T</kbd> · B그룹 <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · C그룹 <kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd> · D그룹 <kbd>1</kbd>~<kbd>6</kbd> · E그룹 <kbd>7</kbd><kbd>8</kbd> · F그룹 <kbd>9</kbd><br>키보드 위치가 그대로 코드 그룹 순서입니다</span>
-     <b>코드 검색</b><span><kbd>F</kbd> 검색창 · <kbd>Enter</kbd> 첫 결과 선택 · <kbd>Esc</kbd> 검색어 지우기<br>
-       코드명뿐 아니라 <b>공식 설명·경계 메모</b>까지 훑습니다 — <b>shadow</b> 로도 <b>그림자</b> 로도 걸립니다.<br>
-       띄어쓴 낱말은 모두 든 코드만 나옵니다(<b>배경 확장</b>).
-       <b>이미 고른 코드는 검색어와 상관없이 항상 남습니다</b> — 안 보이는 코드가 저장되는 일이 없도록.</span>
-     <b>복사</b><span><kbd>Y</kbd> <b>label 만</b> 복사 — 질문할 때 필요한 건 보통 이것 하나입니다.<br>
-       <kbd>Shift</kbd>+<kbd>Y</kbd> 상품명 · row · product · label · 두 이미지 주소 · 고른 코드까지 한 덩어리.<br>
-       코드 행 <kbd>Alt</kbd>+클릭 — 그 <b>코드명만</b> 복사합니다(고르기는 되지 않습니다).<br>
-       조회 창이 떠 있으면 <kbd>Y</kbd>는 거기서 고른 사례의 label 을 복사합니다.</span>
-     <b>사례 조회</b><span><kbd>O</kbd> 다른 사례를 상품명·상품 ID 로 찾아봅니다 — <b>읽기 전용</b>입니다.<br>
-       열면 지금 건의 상품명이 미리 들어갑니다. 왼쪽에서 고르면 오른쪽 뷰어에 걸리고,
-       검수 화면과 똑같이 <b>휠 확대 · 드래그 이동 · 대비/밝기 · 돋보기</b>가 다 됩니다
-       (<kbd>0</kbd> <kbd>,</kbd> <kbd>.</kbd> <kbd>[</kbd> <kbd>]</kbd> <kbd>I</kbd> <kbd>K</kbd> <kbd>M</kbd> <kbd>L</kbd> 그대로).<br>
-       판정·코드 단축키만 잠깁니다 — 조회 중에 Space 를 눌러도 아무 일도 일어나지 않습니다.<br>
-       <b>다른 검수자의 판정은 기본으로 숨깁니다</b> — 먼저 읽으면 판단이 끌려가서요.
-       필요하면 [사람 판정] 버튼으로 켭니다 (auto 판정은 항상 보임).</span>
-     <b>이미지</b><span><kbd>휠</kbd> 확대 · <kbd>드래그</kbd> 이동 · <kbd>0</kbd> 리셋 · <kbd>M</kbd> 돋보기 · <kbd>G</kbd> 눈금 · <kbd>L</kbd> 확대연동</span>
-     <b>보정</b><span><kbd>,</kbd><kbd>.</kbd> 대비 · <kbd>[</kbd><kbd>]</kbd> 밝기 · <kbd>I</kbd> 색반전 · <kbd>K</kbd> 흑백 · <kbd>\\</kbd> 초기화</span>
-     <b>화면</b><span><kbd>H</kbd> 테마 · <kbd>-</kbd><kbd>=</kbd> 글자 크기 · <kbd>/</kbd> 코드 설명 · <kbd>Tab</kbd> 요소 이동 · <kbd>Esc</kbd> 닫기</span>
-     <b>비율</b><span>두 이미지 사이 경계선을 끌면 좌우 폭이 바뀝니다. 더블클릭하면 기본값</span>
-   </div>
+   <!-- 안이 비어 있는 게 맞다. renderKeyHelp() 가 src/25-keys.js 의 표에서 그린다 —
+        손으로 적어 두면 표와 어긋나고, 어긋난 안내는 없느니만 못하다. -->
+   <div class="ks" id="ks"></div>
    <div class="acts" style="margin-top:16px"><button class="btn bp" id="bKeysClose">닫기</button></div>
  </div></div>
 
@@ -731,10 +944,12 @@ const el = {};
  'bTheme','bUiD','bUiU','bInv','bGray','bLoupe','bGuide','bLink','bFxR','bClose','bFx','bKeys',
  'bArm','bWho','bReload','bCopy','gate','who','goWho','cancelWho','sp',
  'mFx','mKeys','mArm','rCt','rBr','oCt','oBr','bFxClose','bKeysClose','bArmYes','bArmNo',
+ 'bScope','bPgP','bPgN','ks',
  'bLook','mLook','lq','lkGo','lkPos','lkPrev','lkNext','lkList','lkHead','lkLbl','lkClose',
  'rCt2','rBr2','oCt2','oBr2','bInv2','bGray2','bFxR2','lkFit','bCopyL','lkHum']
  .forEach(id => el[id] = $('#' + id));
 const wrap = $('.wrap');
+
 
 /* --------------------------- 실행 버튼 --------------------------- */
 const launcher = document.createElement('button');
@@ -748,6 +963,237 @@ launcher.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:21474820
 launcher.onclick = () => WB.open();
 document.body.appendChild(launcher);
 
+
+/* --------------------------- 보기 설정 --------------------------- */
+function setPref(k, v) { S.pref[k] = v; savePref(); applyPref(); }
+function setFx(k, v) {
+  const f = S.pref.fx;
+  f[k] = k === 'bright' || k === 'contrast' ? Math.min(220, Math.max(40, v)) : v;
+  savePref(); applyPref();
+}
+function applyPref() {
+  const p = S.pref;
+  wrap.classList.remove('dark', 'light', 'mono');
+  wrap.classList.add(p.theme);
+  el.bTheme.textContent = '테마: ' + ({dark:'어두움', light:'밝음', mono:'흑백 고대비'}[p.theme]);
+  R.querySelector('.side').style.zoom = p.ui / 100;
+  R.querySelector('.bar').style.zoom = Math.min(1.4, p.ui / 100);
+  el.codes.classList.toggle('desc', p.desc);
+  const tgd = R.querySelector('#tgd');
+  if (tgd) { tgd.setAttribute('aria-pressed', String(p.desc)); tgd.textContent = p.desc ? '설명 숨기기' : '설명 보기'; }
+  const f = p.fx;
+  const filter = `brightness(${f.bright}%) contrast(${f.contrast}%)` +
+                 (f.invert ? ' invert(1)' : '') + (f.gray ? ' grayscale(1)' : '');
+  R.querySelectorAll('.stage img').forEach(n => n.style.filter = filter);
+  R.querySelectorAll('.loupe').forEach(n => n.style.filter = filter);
+  R.querySelector('#gR').classList.toggle('on', p.guides);
+  R.querySelector('#pR').classList.toggle('guided', p.guides);
+  R.querySelectorAll('.pane').forEach(n => n.classList.toggle('lp', p.loupe));
+  const pr = (n, v) => { el[n].setAttribute('aria-pressed', String(!!v)); };
+  pr('bInv', f.invert); pr('bGray', f.gray); pr('bLoupe', p.loupe); pr('bGuide', p.guides); pr('bLink', p.link);
+  el.tmr.style.display = p.showTimer ? '' : 'none';
+  const dirty = f.contrast !== 100 || f.bright !== 100 || f.invert || f.gray;
+  el.bFx.textContent = dirty ? `보정 대비${f.contrast} 밝기${f.bright}${f.invert ? ' 반전' : ''}${f.gray ? ' 흑백' : ''}`
+                             : '이미지 보정…';
+  el.bFx.setAttribute('aria-pressed', String(!!dirty));
+  el.rCt.value = el.rCt2.value = f.contrast; el.oCt.textContent = el.oCt2.textContent = f.contrast + '%';
+  el.rBr.value = el.rBr2.value = f.bright;   el.oBr.textContent = el.oBr2.textContent = f.bright + '%';
+  pr('bInv2', f.invert); pr('bGray2', f.gray);
+  wrap.classList.toggle('peers', !!p.peers);   // 조회 목록의 '사람 …' 줄 표시 여부 (CSS 로만 접는다)
+  pr('lkHum', p.peers);
+  // 좌우 비율
+  R.querySelector('#pR').style.flexGrow = p.split;
+  R.querySelector('#pO').style.flexGrow = 100 - p.split;
+  el.sp.setAttribute('aria-valuenow', String(p.split));
+  // 하단 한 줄 안내도 단축키 표에서 나온다 (80-keyboard.js)
+  el.hint.innerHTML = hintHtml();
+  paintQueueBar();
+}
+/* 큐 범위·쪽 — 지금 무엇을 보고 있는지가 상단에 항상 적혀 있어야 한다.
+ * applyPref 와 떼어 둔 이유는 건을 넘길 때마다 부르기 때문이다.
+ * applyPref 는 패널 넷을 훑으며 필터를 다시 거는 무거운 일이라 매 건 부를 것이 아니다. */
+function paintQueueBar() {
+  // textContent 로 쓰면 <i>B</i> 배지가 날아가고, appendChild 로 쓰면 부를 때마다 쌓인다
+  el.bScope.innerHTML = '범위: ' + esc(curScope().label) + '<i>B</i>';
+  el.bScope.setAttribute('aria-pressed', String(S.scope !== 'todo'));
+  el.bPgP.disabled = S.page <= 1;
+  el.bPgP.title = S.page <= 1 ? '첫 쪽입니다' : `${S.page - 1}쪽으로`;
+  el.bPgN.title = `${S.page + 1}쪽으로`;
+}
+function resetFx() { S.pref.fx = Object.assign({}, DEF_PREF.fx); savePref(); applyPref(); }
+// 버튼 클릭 후에는 포커스를 풀어 단축키가 계속 먹게 한다 (키보드 Tab 이동은 그대로 유지)
+R.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.cb'); if (b) b.blur(); });
+el.bTheme.onclick = () => setPref('theme', {dark:'light', light:'mono', mono:'dark'}[S.pref.theme]);
+el.bUiU.onclick  = () => setPref('ui', Math.min(200, S.pref.ui + 15));
+el.bUiD.onclick  = () => setPref('ui', Math.max(85,  S.pref.ui - 15));
+el.bInv.onclick  = () => setFx('invert', S.pref.fx.invert ? 0 : 1);
+el.bGray.onclick = () => setFx('gray',   S.pref.fx.gray ? 0 : 1);
+el.bLoupe.onclick= () => setPref('loupe', !S.pref.loupe);
+el.bGuide.onclick= () => setPref('guides', !S.pref.guides);
+el.bLink.onclick = () => setPref('link', !S.pref.link);
+el.bFxR.onclick  = () => resetFx();
+el.bClose.onclick= () => WB.close();
+el.rCt.oninput   = () => setFx('contrast', +el.rCt.value);
+el.rBr.oninput   = () => setFx('bright',   +el.rBr.value);
+
+
+/* --------------------------- 모달 --------------------------- */
+function modal(node, show) {
+  R.querySelectorAll('.modal').forEach(m => m.classList.remove('show'));
+  if (show && node) { node.classList.add('show'); const f = node.querySelector('button,input'); if (f) setTimeout(() => f.focus(), 40); }
+}
+const anyModal = () => !!R.querySelector('.modal.show');
+el.bFx.onclick       = () => modal(el.mFx, true);
+el.bFxClose.onclick  = () => modal(null, false);
+el.bKeys.onclick     = () => modal(el.mKeys, true);
+el.bKeysClose.onclick= () => modal(null, false);
+el.bArmNo.onclick    = () => modal(null, false);
+el.bArmYes.onclick   = () => { modal(null, false); setArm(true); };
+el.bArm.onclick      = () => S.armed ? setArm(false) : modal(el.mArm, true);
+R.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) modal(null, false); }));
+
+function setArm(on) {
+  S.armed = on;
+  el.bArm.dataset.on = on ? '1' : '0';
+  el.bArm.textContent = on ? '저장 켜짐' : '저장 꺼짐';
+  el.bArm.setAttribute('aria-pressed', String(on));
+  toast(on ? '저장 켜짐 — 판정이 실제로 기록됩니다' : '저장 꺼짐 — 기록하지 않습니다');
+}
+
+
+/* --------------------------- 좌우 비율 --------------------------- */
+(function splitter() {
+  let on = false;
+  const setFrom = (clientX) => {
+    const box = R.querySelector('.imgs').getBoundingClientRect();
+    const pct = Math.min(82, Math.max(25, Math.round((clientX - box.left) / box.width * 100)));
+    S.pref.split = pct; savePref(); applyPref(); resetView();
+  };
+  el.sp.addEventListener('mousedown', e => { on = true; el.sp.classList.add('on'); e.preventDefault(); });
+  bind(window, 'mousemove', e => { if (on) setFrom(e.clientX); });
+  bind(window, 'mouseup', () => { if (on) { on = false; el.sp.classList.remove('on'); savePref(); } });
+  el.sp.addEventListener('dblclick', () => { setPref('split', DEF_PREF.split); resetView(); });
+  el.sp.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowLeft' ? -3 : e.key === 'ArrowRight' ? 3 : 0;
+    if (!d) return;
+    setPref('split', Math.min(82, Math.max(25, S.pref.split + d))); resetView();
+    e.preventDefault(); e.stopPropagation();
+  });
+})();
+
+
+function toast(m, bad) {
+  R.querySelectorAll('.toast').forEach(n => n.remove());
+  const t = document.createElement('div');
+  t.className = 'toast' + (bad ? ' err' : ''); t.textContent = m; t.setAttribute('role', 'alert');
+  wrap.appendChild(t); setTimeout(() => t.remove(), bad ? 6000 : 2200);
+}
+
+/* ══════ src/50-viewer.js ════════════════════════════════════════════ */
+/* --------------------------- 뷰어 ---------------------------
+ *  확대 · 이동 · 돋보기 · 화면맞춤을 한 덩어리로 묶은 것.
+ *
+ *  0.9.6 에서 패널 4개(검수 R·O, 조회 LR·LO)가 같은 기계를 쓰도록 일반화했지만,
+ *  'i'+id / 'p'+id / 's'+id / 'z'+id / 'l'+id 라는 id 접미사 규약이 여기저기
+ *  흩어져 있었다. 규약을 아는 곳이 많을수록 다섯 번째 패널을 붙일 때 빠뜨리기 쉽다.
+ *  이제 그 규약은 makeViewer() 안에만 있다. 뷰어를 하나 더 붙이는 일은
+ *  PANES 에 한 줄 쓰고 HTML 에 같은 접미사로 노드를 두는 것으로 끝난다.
+ *
+ *  묶음(group)은 [확대연동]이 함께 움직일 범위다. 검수 화면 둘이 한 묶음,
+ *  조회 창 둘이 다른 묶음 — 조회 창을 확대했다고 검수 화면이 따라 움직이면 곤란하다.
+ * --------------------------------------------------------------- */
+const PANES = { R:'main', O:'main', LR:'look', LO:'look' };
+const VIEWERS = {};
+const VIEW_GROUPS = {};   // 묶음 이름 → [id, …]. 아래에서 PANES 로부터 자동으로 만든다.
+
+function makeViewer(id, group) {
+  const pane  = R.querySelector('#p' + id);
+  const stage = R.querySelector('#s' + id);
+  const img   = R.querySelector('#i' + id);
+  const loupe = R.querySelector('#l' + id);
+  const zl    = R.querySelector('#z' + id);
+  if (!pane || !stage || !img) { console.warn('[워크벤치] 뷰어 노드를 못 찾음:', id); return null; }
+
+  const v = { z:1, x:0, y:0, fit:1 };
+  const vw = {
+    id, group, pane, stage, img, loupe, v,
+
+    apply() {
+      stage.style.transform =
+        `translate(calc(-50% + ${v.x}px), calc(-50% + ${v.y}px)) scale(${v.z})`;
+      if (zl) zl.textContent = Math.round(v.z / (v.fit || 1) * 100) + '%';
+    },
+
+    fit() {
+      const r = pane.getBoundingClientRect();
+      // 닫혀 있는 조회 창의 패널은 폭이 0 이다. 그대로 계산하면 배율이 음수가 되어
+      // 이미지가 뒤집힌 채 남는다. 화면에 없는 패널은 손대지 않는다.
+      if (!r.width || !r.height) return;
+      const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+      stage.style.width = nw + 'px'; stage.style.height = nh + 'px';
+      v.fit = Math.min((r.width - 16) / nw, (r.height - 16) / nh) || 1;
+      v.z = v.fit; v.x = 0; v.y = 0;
+      vw.apply();
+    },
+
+    zoom(f) { v.z = Math.min(20, Math.max(v.fit * 0.4, v.z * f)); vw.apply(); },
+
+    src(url) {
+      pane.classList.add('loading');
+      img.onload  = () => { pane.classList.remove('loading'); vw.fit(); };
+      img.onerror = () => pane.classList.remove('loading');
+      img.src = url || '';
+      if (img.complete && img.naturalWidth) { pane.classList.remove('loading'); vw.fit(); }
+    },
+  };
+
+  /* 확대 — [확대연동]이 켜져 있으면 같은 묶음이 함께 움직인다 */
+  pane.addEventListener('wheel', e => {
+    e.preventDefault();
+    const f = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+    for (const t of (S.pref.link ? VIEW_GROUPS[group] : [id]))
+      if (VIEWERS[t]) VIEWERS[t].zoom(f);
+  }, { passive:false });
+
+  /* 이동 · 돋보기 — 끌기는 창 밖에서 손을 놓아도 끝나야 하므로 window 에 건다 */
+  let dg = null;
+  pane.addEventListener('mousedown', e => {
+    dg = { x:e.clientX, y:e.clientY, vx:v.x, vy:v.y }; pane.classList.add('drag');
+  });
+  bind(window, 'mousemove', e => {
+    if (dg) { v.x = dg.vx + (e.clientX - dg.x); v.y = dg.vy + (e.clientY - dg.y); vw.apply(); }
+    if (!loupe || !S.pref.loupe || !wrap.classList.contains('show')) return;
+    const pr = pane.getBoundingClientRect();
+    const inside = e.clientX >= pr.left && e.clientX <= pr.right &&
+                   e.clientY >= pr.top  && e.clientY <= pr.bottom;
+    loupe.style.display = inside ? 'block' : 'none';
+    if (!inside) return;
+    const ir = img.getBoundingClientRect(), Z = 3, D = 260;
+    loupe.style.left = (e.clientX - pr.left - D / 2) + 'px';
+    loupe.style.top  = (e.clientY - pr.top  - D / 2) + 'px';
+    loupe.style.backgroundImage = `url("${img.src}")`;
+    loupe.style.backgroundSize = (ir.width * Z) + 'px ' + (ir.height * Z) + 'px';
+    loupe.style.backgroundPosition =
+      (-((e.clientX - ir.left) * Z - D / 2)) + 'px ' + (-((e.clientY - ir.top) * Z - D / 2)) + 'px';
+  });
+  bind(window, 'mouseup', () => { dg = null; pane.classList.remove('drag'); });
+
+  pane.addEventListener('dblclick', () => fitGroup(group));
+  return vw;
+}
+
+for (const [id, g] of Object.entries(PANES)) {
+  (VIEW_GROUPS[g] || (VIEW_GROUPS[g] = [])).push(id);
+  VIEWERS[id] = makeViewer(id, g);
+}
+
+/* 바깥에서 쓰는 이름은 그대로 둔다 — 부르는 쪽이 뷰어의 속을 알 필요는 없다 */
+function fitView(id)     { const w = VIEWERS[id]; if (w) w.fit(); }
+function fitGroup(g)     { (VIEW_GROUPS[g] || []).forEach(fitView); }
+function resetView()     { Object.keys(VIEWERS).forEach(fitView); }
+function setImg(id, url) { const w = VIEWERS[id]; if (w) w.src(url); }
+
+/* ══════ src/60-review.js ════════════════════════════════════════════ */
 /* --------------------------- 코드 리스트 --------------------------- */
 (function build() {
   let html = '', g = null;
@@ -779,6 +1225,7 @@ document.body.appendChild(launcher);
   });
 })();
 function esc(s) { return String(s).replace(/[<>&"]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m])); }
+
 
 /* --------------------------- 코드 검색 ---------------------------
  *  21개를 매번 눈으로 훑는 대신 걸러서 본다.
@@ -872,171 +1319,6 @@ el.q.addEventListener('keydown', e => {
 });
 el.bQx.onclick = () => clearFind(true);
 
-/* --------------------------- 보기 설정 --------------------------- */
-function setPref(k, v) { S.pref[k] = v; savePref(); applyPref(); }
-function setFx(k, v) {
-  const f = S.pref.fx;
-  f[k] = k === 'bright' || k === 'contrast' ? Math.min(220, Math.max(40, v)) : v;
-  savePref(); applyPref();
-}
-function applyPref() {
-  const p = S.pref;
-  wrap.classList.remove('dark', 'light', 'mono');
-  wrap.classList.add(p.theme);
-  el.bTheme.textContent = '테마: ' + ({dark:'어두움', light:'밝음', mono:'흑백 고대비'}[p.theme]);
-  R.querySelector('.side').style.zoom = p.ui / 100;
-  R.querySelector('.bar').style.zoom = Math.min(1.4, p.ui / 100);
-  el.codes.classList.toggle('desc', p.desc);
-  const tgd = R.querySelector('#tgd');
-  if (tgd) { tgd.setAttribute('aria-pressed', String(p.desc)); tgd.textContent = p.desc ? '설명 숨기기' : '설명 보기'; }
-  const f = p.fx;
-  const filter = `brightness(${f.bright}%) contrast(${f.contrast}%)` +
-                 (f.invert ? ' invert(1)' : '') + (f.gray ? ' grayscale(1)' : '');
-  R.querySelectorAll('.stage img').forEach(n => n.style.filter = filter);
-  R.querySelectorAll('.loupe').forEach(n => n.style.filter = filter);
-  R.querySelector('#gR').classList.toggle('on', p.guides);
-  R.querySelector('#pR').classList.toggle('guided', p.guides);
-  R.querySelectorAll('.pane').forEach(n => n.classList.toggle('lp', p.loupe));
-  const pr = (n, v) => { el[n].setAttribute('aria-pressed', String(!!v)); };
-  pr('bInv', f.invert); pr('bGray', f.gray); pr('bLoupe', p.loupe); pr('bGuide', p.guides); pr('bLink', p.link);
-  el.tmr.style.display = p.showTimer ? '' : 'none';
-  const dirty = f.contrast !== 100 || f.bright !== 100 || f.invert || f.gray;
-  el.bFx.textContent = dirty ? `보정 대비${f.contrast} 밝기${f.bright}${f.invert ? ' 반전' : ''}${f.gray ? ' 흑백' : ''}`
-                             : '이미지 보정…';
-  el.bFx.setAttribute('aria-pressed', String(!!dirty));
-  el.rCt.value = el.rCt2.value = f.contrast; el.oCt.textContent = el.oCt2.textContent = f.contrast + '%';
-  el.rBr.value = el.rBr2.value = f.bright;   el.oBr.textContent = el.oBr2.textContent = f.bright + '%';
-  pr('bInv2', f.invert); pr('bGray2', f.gray);
-  wrap.classList.toggle('peers', !!p.peers);   // 조회 목록의 '사람 …' 줄 표시 여부 (CSS 로만 접는다)
-  pr('lkHum', p.peers);
-  // 좌우 비율
-  R.querySelector('#pR').style.flexGrow = p.split;
-  R.querySelector('#pO').style.flexGrow = 100 - p.split;
-  el.sp.setAttribute('aria-valuenow', String(p.split));
-  el.hint.innerHTML =
-    `<kbd>휠</kbd> 확대 · <kbd>드래그</kbd> 이동 · <kbd>0</kbd> 리셋 · <kbd>F</kbd> 코드 검색 · <kbd>Y</kbd> label 복사 · <kbd>O</kbd> 사례 조회 · 가운데 <b>경계선</b>으로 좌우 폭 조절 · <kbd>?</kbd> 단축키`;
-}
-// 버튼 클릭 후에는 포커스를 풀어 단축키가 계속 먹게 한다 (키보드 Tab 이동은 그대로 유지)
-R.addEventListener('click', e => { const b = e.target.closest && e.target.closest('.cb'); if (b) b.blur(); });
-el.bTheme.onclick = () => setPref('theme', {dark:'light', light:'mono', mono:'dark'}[S.pref.theme]);
-el.bUiU.onclick  = () => setPref('ui', Math.min(200, S.pref.ui + 15));
-el.bUiD.onclick  = () => setPref('ui', Math.max(85,  S.pref.ui - 15));
-el.bInv.onclick  = () => setFx('invert', S.pref.fx.invert ? 0 : 1);
-el.bGray.onclick = () => setFx('gray',   S.pref.fx.gray ? 0 : 1);
-el.bLoupe.onclick= () => setPref('loupe', !S.pref.loupe);
-el.bGuide.onclick= () => setPref('guides', !S.pref.guides);
-el.bLink.onclick = () => setPref('link', !S.pref.link);
-el.bFxR.onclick  = () => { S.pref.fx = Object.assign({}, DEF_PREF.fx); savePref(); applyPref(); };
-el.bClose.onclick= () => WB.close();
-el.rCt.oninput   = () => setFx('contrast', +el.rCt.value);
-el.rBr.oninput   = () => setFx('bright',   +el.rBr.value);
-
-/* --------------------------- 모달 --------------------------- */
-function modal(node, show) {
-  R.querySelectorAll('.modal').forEach(m => m.classList.remove('show'));
-  if (show && node) { node.classList.add('show'); const f = node.querySelector('button,input'); if (f) setTimeout(() => f.focus(), 40); }
-}
-const anyModal = () => !!R.querySelector('.modal.show');
-el.bFx.onclick       = () => modal(el.mFx, true);
-el.bFxClose.onclick  = () => modal(null, false);
-el.bKeys.onclick     = () => modal(el.mKeys, true);
-el.bKeysClose.onclick= () => modal(null, false);
-el.bArmNo.onclick    = () => modal(null, false);
-el.bArmYes.onclick   = () => { modal(null, false); setArm(true); };
-el.bArm.onclick      = () => S.armed ? setArm(false) : modal(el.mArm, true);
-R.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) modal(null, false); }));
-
-function setArm(on) {
-  S.armed = on;
-  el.bArm.dataset.on = on ? '1' : '0';
-  el.bArm.textContent = on ? '저장 켜짐' : '저장 꺼짐';
-  el.bArm.setAttribute('aria-pressed', String(on));
-  toast(on ? '저장 켜짐 — 판정이 실제로 기록됩니다' : '저장 꺼짐 — 기록하지 않습니다');
-}
-
-/* --------------------------- 좌우 비율 --------------------------- */
-(function splitter() {
-  let on = false;
-  const setFrom = (clientX) => {
-    const box = R.querySelector('.imgs').getBoundingClientRect();
-    const pct = Math.min(82, Math.max(25, Math.round((clientX - box.left) / box.width * 100)));
-    S.pref.split = pct; savePref(); applyPref(); resetView();
-  };
-  el.sp.addEventListener('mousedown', e => { on = true; el.sp.classList.add('on'); e.preventDefault(); });
-  bind(window, 'mousemove', e => { if (on) setFrom(e.clientX); });
-  bind(window, 'mouseup', () => { if (on) { on = false; el.sp.classList.remove('on'); savePref(); } });
-  el.sp.addEventListener('dblclick', () => { setPref('split', DEF_PREF.split); resetView(); });
-  el.sp.addEventListener('keydown', e => {
-    const d = e.key === 'ArrowLeft' ? -3 : e.key === 'ArrowRight' ? 3 : 0;
-    if (!d) return;
-    setPref('split', Math.min(82, Math.max(25, S.pref.split + d))); resetView();
-    e.preventDefault(); e.stopPropagation();
-  });
-})();
-
-/* --------------------------- 확대 / 이동 / 돋보기 --------------------------- */
-/* 패널이 넷이다 — 검수 화면의 R·O, 조회 창의 LR·LO.
- * 확대·이동·돋보기·보정은 넷이 같은 기계를 쓴다. 조회 창에서만 못 하는 게 있으면
- * 결국 Esc 로 나가게 되므로, 그러면 이 기능을 만든 의미가 없다. */
-const PANES  = ['R','O','LR','LO'];
-const LINKED = { R:['R','O'], O:['R','O'], LR:['LR','LO'], LO:['LR','LO'] };
-const V = { R:{z:1,x:0,y:0,fit:1}, O:{z:1,x:0,y:0,fit:1},
-            LR:{z:1,x:0,y:0,fit:1}, LO:{z:1,x:0,y:0,fit:1} };
-function applyView(w) {
-  const v = V[w], st = R.querySelector('#s' + w);
-  if (!st) return;
-  st.style.transform =
-    `translate(calc(-50% + ${v.x}px), calc(-50% + ${v.y}px)) scale(${v.z})`;
-  R.querySelector('#z' + w).textContent = Math.round(v.z / (v.fit || 1) * 100) + '%';
-}
-function fitView(w) {
-  const img = R.querySelector('#i' + w);
-  const st = R.querySelector('#s' + w), pane = R.querySelector('#p' + w);
-  if (!img || !st || !pane) return;
-  const r = pane.getBoundingClientRect();
-  // 닫혀 있는 조회 창의 패널은 폭이 0 이다. 그대로 계산하면 배율이 음수가 되어
-  // 이미지가 뒤집힌 채 남는다. 화면에 없는 패널은 손대지 않는다.
-  if (!r.width || !r.height) return;
-  const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
-  st.style.width = nw + 'px'; st.style.height = nh + 'px';
-  const fit = Math.min((r.width - 16) / nw, (r.height - 16) / nh) || 1;
-  V[w] = { z:fit, x:0, y:0, fit }; applyView(w);
-}
-function resetView() { PANES.forEach(fitView); }
-
-PANES.forEach(w => {
-  const pane = R.querySelector('#p' + w), loupe = R.querySelector('#l' + w);
-  const img  = R.querySelector('#i' + w);
-  pane.addEventListener('wheel', e => {
-    e.preventDefault();
-    const f = e.deltaY < 0 ? 1.18 : 1 / 1.18;
-    for (const t of (S.pref.link ? LINKED[w] : [w])) {
-      const v = V[t]; v.z = Math.min(20, Math.max(v.fit * 0.4, v.z * f)); applyView(t);
-    }
-  }, { passive:false });
-  let dg = null;
-  pane.addEventListener('mousedown', e => {
-    dg = { x:e.clientX, y:e.clientY, vx:V[w].x, vy:V[w].y }; pane.classList.add('drag');
-  });
-  bind(window, 'mousemove', e => {
-    if (dg) { V[w].x = dg.vx + (e.clientX - dg.x); V[w].y = dg.vy + (e.clientY - dg.y); applyView(w); }
-    if (S.pref.loupe && wrap.classList.contains('show')) {
-      const pr = pane.getBoundingClientRect();
-      const inside = e.clientX >= pr.left && e.clientX <= pr.right && e.clientY >= pr.top && e.clientY <= pr.bottom;
-      loupe.style.display = inside ? 'block' : 'none';
-      if (!inside) return;
-      const ir = img.getBoundingClientRect(), Z = 3, D = 260;
-      loupe.style.left = (e.clientX - pr.left - D / 2) + 'px';
-      loupe.style.top  = (e.clientY - pr.top  - D / 2) + 'px';
-      loupe.style.backgroundImage = `url("${img.src}")`;
-      loupe.style.backgroundSize = (ir.width * Z) + 'px ' + (ir.height * Z) + 'px';
-      loupe.style.backgroundPosition =
-        (-( (e.clientX - ir.left) * Z - D / 2)) + 'px ' + (-((e.clientY - ir.top) * Z - D / 2)) + 'px';
-    }
-  });
-  bind(window, 'mouseup', () => { dg = null; pane.classList.remove('drag'); });
-  pane.addEventListener('dblclick', resetView);
-});
 
 /* --------------------------- 렌더 --------------------------- */
 const cur = () => S.queue[S.i] || null;
@@ -1067,15 +1349,6 @@ function autoDraft() {
   const f = S.pref.draft === 'official' ? 'd' : 'm';
   el.msg.value = [...S.sel].map(c => BY_CODE[c][f]).join(', ');
 }
-function setImg(w, url) {
-  const img = R.querySelector('#i' + w), pane = R.querySelector('#p' + w);
-  if (!img || !pane) return;
-  pane.classList.add('loading');
-  img.onload  = () => { pane.classList.remove('loading'); fitView(w); };
-  img.onerror = () => pane.classList.remove('loading');
-  img.src = url || '';
-  if (img.complete && img.naturalWidth) { pane.classList.remove('loading'); fitView(w); }
-}
 const _pf = new Set();
 function prefetch(i) {
   const it = S.queue[i]; if (!it) return;
@@ -1085,96 +1358,112 @@ function prefetch(i) {
 function render() {
   const it = cur();
   el.rev.style.display = 'none'; delete el.rev.dataset.peek;
+  wrap.classList.remove('locked');
   S.sel.clear();
   syncCodes();          // 검색어는 그대로 두고 선택만 비운다
   el.msg.value = ''; delete el.msg.dataset.touched;
   if (!it) {
-    el.pn.textContent = '큐가 비었습니다'; el.mt.textContent = '';
-    el.iR.src = ''; el.iO.src = ''; el.pos.textContent = '–'; return;
+    el.pn.textContent = emptyText(); el.mt.textContent = '';
+    setImg('R', ''); setImg('O', ''); el.pos.textContent = '–';
+    paintQueueBar(); return;   // 범위·쪽 표시는 큐가 비어도 맞아야 한다
   }
   el.pn.textContent = it.product_name || '(상품명 없음)';
   el.mt.textContent = `row ${it.row_number} · product ${it.product_id} · ${it.media.selected_input_column || ''}`;
   setImg('R', it.media.result_url); setImg('O', it.media.selected_input_url);
-  el.pos.textContent = `${S.i + 1} / ${S.queue.length}`;
+  el.pos.textContent = `${S.i + 1} / ${S.queue.length} · ${curScope().label}` +
+                       (S.page > 1 ? ` · ${S.page}쪽` : '');
   S.t0 = Date.now();
-  // 이미 저장한 건으로 되돌아온 경우: 빈 폼으로 두면 실수로 빈 PASS를 덮어쓸 수 있다.
-  // 저장했던 판정·코드·메시지를 그대로 복원하고, 덮어쓰기임을 알린다.
-  const prev = S.done[it.label_row_id];
-  if (prev) {
-    prev.codes.forEach(c => S.sel.add(c));
+  // 판정이 이미 있는 건이면 그 판정·코드·메시지를 그대로 되살려 연다.
+  // 빈 폼으로 두면 Space 한 번에 공들인 REJECT 가 빈 PASS 로 덮인다.
+  const j = judgedOf(it);
+  if (j) {
+    (j.codes || []).forEach(c => { if (BY_CODE[c]) S.sel.add(c); });
     syncCodes();
-    el.msg.value = prev.msg || '';
+    el.msg.value = j.msg || '';
     el.msg.dataset.touched = '1';           // 자동 초안이 저장했던 문구를 덮지 않게
-    el.rev.innerHTML = `<div class="h">이미 판정한 건입니다</div>` +
-      `저장된 판정: <b>${prev.verdict}</b>` +
-      (prev.codes.length ? ` · ${prev.codes.map(esc).join(', ')}` : '') +
-      `<div style="margin-top:4px;color:var(--mut)">다시 저장하면 위 내용을 덮어씁니다. 고칠 게 없으면 그냥 넘어가세요.</div>`;
-    el.rev.style.display = 'block';
   }
+  paintLock();
+  paintQueueBar();
   renderStats(); prefetch(S.i + 1); prefetch(S.i + 2);
 }
+
+/* 큐가 비었을 때 무엇 때문에 비었는지 — 범위를 바꿔 봤는데 아무 말이 없으면
+ * 도구가 고장난 줄 안다. */
+function emptyText() {
+  if (S.scope === 'done') return S.fetched.length
+    ? '이 쪽에는 완료된 건이 없습니다'
+    : '완료된 건이 없습니다';
+  if (S.scope === 'todo') return '미완료가 없습니다 — 범위를 [완료] 로 바꿔 보세요 (B)';
+  return '큐가 비었습니다';
+}
+
+/* --------------------------- 잠금 ---------------------------
+ *  판정이 있는 건은 잠긴 채로 연다. 고치려면 J(고치기)를 먼저 눌러야 한다.
+ *
+ *  이게 필요한 이유는 검수가 손버릇으로 돌아가기 때문이다. 500건을 Space·Enter 로
+ *  넘기다 보면 화면을 다 읽기 전에 손이 먼저 움직인다. 미완료 큐에서는 그게 속도지만,
+ *  완료 큐에서는 이미 내려둔 판정을 지우는 동작이 된다.
+ *  잠금은 그 한 번의 관성을 끊는 장치다 — 되돌릴 수 없는 쪽에만 건다.
+ * --------------------------------------------------------------- */
+function paintLock() {
+  const it = cur(); if (!it) return;
+  const j = judgedOf(it);
+  const locked = isLocked(it);
+  wrap.classList.toggle('locked', locked);
+  if (!j) return;
+  const src = j.mine ? '이 세션에서 판정한 건입니다' : '이미 판정이 저장된 건입니다';
+  el.rev.innerHTML = `<div class="h">${locked ? '잠김 — ' : ''}${src}</div>` +
+    `저장된 판정: <b>${esc(j.verdict)}</b>` +
+    ((j.codes || []).length ? ` · ${j.codes.map(esc).join(', ')}` : '') +
+    (j.msg ? `<div style="margin-top:4px;color:var(--mut)">${esc(j.msg)}</div>` : '') +
+    (locked
+      ? `<div style="margin-top:4px;color:var(--mut)">고칠 게 없으면 그냥 넘어가세요(<b>N</b>).
+           고치려면 아래를 누릅니다 — 그때부터 PASS/REJECT 가 이 판정을 덮어씁니다.</div>
+         <button class="cb" data-act="unlock">고치기<i>J</i></button>`
+      : `<div style="margin-top:4px;color:var(--mut)">잠금이 풀렸습니다. 지금 저장하면 위 내용을 덮어씁니다.</div>`);
+  el.rev.style.display = 'block';
+}
+function unlock() {
+  const it = cur(); if (!it) return;
+  if (!judgedOf(it)) return toast('아직 판정이 없는 건이라 잠겨 있지 않습니다');
+  if (S.open.has(it.label_row_id)) return toast('이미 고칠 수 있는 상태입니다');
+  S.open.add(it.label_row_id);
+  paintLock();
+  toast('잠금 해제 — 이제 저장하면 기존 판정을 덮어씁니다');
+}
+el.rev.addEventListener('click', e => {
+  if (e.target.closest('[data-act="unlock"]')) unlock();
+});
+
+/* 범위 전환 — 미완료 ▸ 완료 ▸ 전체. 서버를 다시 부르지 않고 받아 둔 것만 다시 거른다.
+ * 완료 범위로 갔는데 비면, 그건 서버의 mine 이 완료를 빼고 준다는 뜻이다. */
+function applyScope() {
+  S.queue = S.fetched.filter(curScope().pick);
+  S.i = 0;
+  render();
+  if (S.scope === 'done' && !S.queue.length && S.fetched.length) {
+    toast('받아온 ' + S.fetched.length + '건에 완료가 하나도 없습니다 — 콘솔의 안내를 보세요', true);
+    console.warn('[워크벤치] 서버의 label_status=mine 이 완료 건을 빼고 주는 것 같습니다.\n' +
+      '  WB.probe() 로 어떤 label_status 값이 무엇을 돌려주는지 확인할 수 있습니다 (읽기 전용 GET).\n' +
+      '  완료를 주는 값을 찾으면 알려주세요 — fetchQueue 에 반영하면 됩니다.');
+  }
+}
+function setScope(name) {
+  if (!SCOPES[name]) return toast('모르는 범위입니다: ' + name, true);
+  S.scope = name;
+  applyScope();
+  toast('범위: ' + curScope().label + ` · ${S.queue.length}건`);
+}
+function cycleScope() {
+  setScope(SCOPE_ORDER[(SCOPE_ORDER.indexOf(S.scope) + 1) % SCOPE_ORDER.length]);
+}
+el.bScope.onclick = () => cycleScope();
+el.bPgP.onclick = () => { if (S.page > 1) WB.load({ page: S.page - 1 }).catch(loadErr); };
+el.bPgN.onclick = () => WB.load({ page: S.page + 1 }).catch(loadErr);
+function loadErr(e) { toast(String(e.message || e), true); }
 function renderStats() {
   const s = S.stats;
   el.sst.textContent = `저장 ${s.n}건` + (s.n ? ` · auto 판정일치 ${Math.round(s.agreeVerdict / s.n * 100)}%` : '');
-}
-/* --------------------------- 순찰 ---------------------------
- * evictGhosts 는 이 스크립트보다 '먼저' 있던 유령만 치울 수 있다. Tampermonkey 에
- * 옛 버전 항목이 같이 켜져 있으면 그쪽이 우리 '뒤에' 로드되면서 전역 키 핸들러를
- * 새로 깔고, q·w·e·z 를 도로 먹기 시작한다 — 0.9.3 증상의 재발 경로다.
- * 그래서 0.5초마다 확인한다: 낯선 워크벤치 DOM 은 걷어내고, 빼앗긴 window.WB 는
- * 되찾고, 관리자 화면이 body 를 갈아끼워 떨어져 나간 내 host 는 도로 붙인다.
- * 더 새 버전이 보이면 싸우지 않는다 — 내가 비킨다. */
-function verNum(v) {
-  const p = String(v || '0').split('.');
-  return (+p[0] || 0) * 1e6 + (+p[1] || 0) * 1e3 + (+p[2] || 0);
-}
-function quietHost(h) {   // evictGhosts 와 같은 처치 — 화면을 접고, 다시 켜지지 않게 잠근다
-  const w = h.shadowRoot && h.shadowRoot.querySelector('.wrap');
-  if (w) {
-    w.classList.remove('show');
-    try { new MutationObserver(() => { if (w.classList.contains('show')) w.classList.remove('show'); })
-            .observe(w, { attributes:true, attributeFilter:['class'] }); } catch (e) {}
-  }
-  h.remove();
-}
-function patrol() {
-  // 1) window.WB 를 남이 쥐고 있다: 더 새 버전이면 내가 비키고, 구버전이면 내리고 되찾는다.
-  //    (제대로 된 새 버전은 설치할 때 우리 destroy() 를 불러 TICK 을 끄므로,
-  //     내가 아직 돌고 있는데 자리를 빼앗겼다면 그쪽은 guard 없는 구버전이다.)
-  const alien = window.WB;
-  if (alien && alien !== WB) {
-    if (verNum(alien.VERSION) > verNum(VERSION)) { WB.destroy(); return; }
-    console.warn('[워크벤치] v' + (alien.VERSION || '?') + ' 이 내 뒤에 로드됨 — 내리고 자리를 되찾습니다');
-    try { alien.destroy && alien.destroy(); } catch (e) {}
-    window.WB = WB;
-  }
-  // 2) 낯선 워크벤치 DOM — destroy() 가 없는 구버전이 내 뒤에 만든 것
-  for (const h of document.querySelectorAll('#hm-wb-host')) {
-    if (h === host) continue;
-    const c = verNum(h.dataset.v) - verNum(VERSION);
-    // 같은 버전이 둘이면(샌드박스 분리 등) 먼저 태어난 쪽이 남는다 — 둘 다 비키면 아무도 없다
-    if (c > 0 || (c === 0 && +(h.dataset.born || 0) < +host.dataset.born)) { WB.destroy(); return; }
-    console.warn('[워크벤치] 낯선 워크벤치 DOM 을 걷어냅니다 (v' + (h.dataset.v || '0.9.6 이하') + ')');
-    quietHost(h);
-  }
-  for (const n of [...(document.body ? document.body.children : [])]) {
-    if (n !== launcher && n.tagName === 'BUTTON' &&
-        (n.dataset.hmWbLauncher || n.textContent === '검수 워크벤치')) n.remove();
-  }
-  // 3) 관리자 화면이 body 를 갈아끼워 내 host·실행 버튼이 떨어졌으면 도로 붙인다
-  if (!host.isConnected && document.body) document.body.appendChild(host);
-  if (!launcher.isConnected && document.body) document.body.appendChild(launcher);
-}
-const TICK = setInterval(() => {
-  patrol();
-  if (S.pref.showTimer && wrap.classList.contains('show') && cur())
-    el.tmr.textContent = ((Date.now() - S.t0) / 1000).toFixed(0) + '초';
-}, 500);
-function toast(m, bad) {
-  R.querySelectorAll('.toast').forEach(n => n.remove());
-  const t = document.createElement('div');
-  t.className = 'toast' + (bad ? ' err' : ''); t.textContent = m; t.setAttribute('role', 'alert');
-  wrap.appendChild(t); setTimeout(() => t.remove(), bad ? 6000 : 2200);
 }
 
 /* --------------------------- 복사 ---------------------------
@@ -1242,6 +1531,168 @@ function copyLabel(it) {
 el.bCopy.onclick  = () => copyRef();
 el.bCopyL.onclick = () => copyLabel(cur());
 
+
+/* --------------------------- 저장 --------------------------- */
+async function save(verdict) {
+  const it = cur(); if (!it || S.busy) return;
+  /* 내 큐로 불러온 건만 저장한다.
+   * 지금은 큐가 곧 내 것이라 이 조건이 깨질 일이 없다. 그래도 미리 채워 두는 이유는,
+   * 나중에 남의 건을 열람하는 기능이 붙었을 때 "저장 버튼을 안 누르면 된다"가 아니라
+   * "저장 경로 자체가 닫혀 있다"로 만들어 두기 위해서다. 조용히 넘어가지 않고 멈춘다. */
+  if (!S.mine.has(it.label_row_id)) {
+    console.warn('[워크벤치] 내 큐에 없는 건이라 저장을 막았습니다', it.label_row_id);
+    return toast('내 큐에서 불러온 건이 아니라 저장하지 않았습니다', true);
+  }
+  /* 판정이 이미 있는 건은 J(고치기)를 눌러 잠금을 푼 뒤에만 덮어쓸 수 있다.
+   * 손버릇으로 누른 Space 가 여기서 멈춘다. */
+  if (isLocked(it)) {
+    return toast('이미 판정이 있는 건입니다 — [고치기](J) 를 누른 뒤에 저장하세요', true);
+  }
+  const codes = [...S.sel], msg = el.msg.value.trim();
+  if (verdict === 'reject') {
+    if (!codes.length) return toast('이슈 코드를 최소 1개 고르세요', true);
+    if (!msg) return toast('REJECT 사유 메시지를 적으세요', true);
+  }
+  const secs = (Date.now() - S.t0) / 1000;
+  const payload = { label_row_id: it.label_row_id, labeler: S.labeler, human_verdict: verdict,
+    human_issue_codes: verdict === 'reject' ? codes : [],
+    human_message: verdict === 'reject' ? msg : (msg || ''), discard_reason: '' };
+  if (!S.armed) {
+    console.log('%c[저장 꺼짐] 전송하지 않음', 'color:#b8860b', payload);
+    toast('저장 꺼짐 — 전송하지 않았습니다 (WB.arm() 으로 켜기)');
+    reveal(it, verdict, codes, true); return;
+  }
+  S.busy = true;
+  try {
+    await postSave(payload);
+    // 재저장은 통계에 두 번 세지 않는다. 완료 범위에서 고친 건도 마찬가지 —
+    // 불러온 시점에 이미 판정이 있었다면 그건 오늘 새로 한 일이 아니다.
+    const resave = !!S.done[it.label_row_id] || S.wasDone.has(it.label_row_id);
+    S.done[it.label_row_id] = { verdict, codes: [...codes], msg };
+    if (!resave) tally(it, verdict, codes, secs);
+    reveal(it, verdict, codes, false);
+    toast('저장됨');
+    setTimeout(next, 900);
+  } catch (e) { toast(String(e.message || e), true); console.error(e); }
+  finally { S.busy = false; }
+}
+function tally(it, verdict, codes, secs) {
+  const s = S.stats, a = it.auto || {};
+  s.n++; s[verdict === 'pass' ? 'pass' : 'reject']++;
+  s.secs.push(+secs.toFixed(1)); if (s.secs.length > 400) s.secs.shift();
+  if (a.verdict === verdict) s.agreeVerdict++;
+  const A = new Set(a.issue_codes || []), inter = codes.filter(c => A.has(c)).length;
+  if (A.size === codes.length && inter === A.size) s.codeExact++;
+  else if (inter > 0) s.codePartial++;
+  else if (A.size || codes.length) s.codeMiss++;
+  saveStats(); renderStats();
+}
+function reveal(it, verdict, codes, dry) {
+  const a = it.auto || {}, A = new Set(a.issue_codes || []);
+  const mine = codes.map(c => (A.has(c) ? '<span class="ok">일치</span> ' : '<span class="no">나만</span> ') + c).join('<br>');
+  const only = (a.issue_codes || []).filter(c => !codes.includes(c)).map(c => 'auto만 ' + c).join('<br>');
+  el.rev.innerHTML = `<div class="h">AUTO 판정 대조${dry ? ' (저장 꺼짐)' : ''}</div>` +
+    `auto <b class="${a.verdict === verdict ? 'ok' : 'no'}">${a.verdict || '—'}</b> · 나 <b>${verdict}</b>` +
+    (mine ? `<div style="margin-top:5px">${mine}</div>` : '') +
+    (only ? `<div style="margin-top:4px;color:var(--mut)">${only}</div>` : '') +
+    (a.message ? `<div style="margin-top:5px;color:var(--mut)">${esc(a.message)}</div>` : '');
+  el.rev.style.display = 'block';
+}
+/* auto 판정 보기 — U 키 토글.
+ * auto는 정밀도가 높은 편(잡은 건 대체로 진짜)이라 참고하면서,
+ * auto가 못 잡은 것을 추가로 찾는 흐름에 쓴다. */
+function peekAuto() {
+  const it = cur(); if (!it) return;
+  if (el.rev.style.display === 'block' && el.rev.dataset.peek === it.label_row_id) {
+    el.rev.style.display = 'none'; delete el.rev.dataset.peek; return;
+  }
+  const a = it.auto || {};
+  el.rev.dataset.peek = it.label_row_id;
+  el.rev.innerHTML = `<div class="h">AUTO 판정</div>` +
+    `auto: <b>${esc(a.verdict || '—')}</b>` +
+    ((a.issue_codes || []).length ? `<div style="margin-top:4px">${a.issue_codes.map(esc).join('<br>')}</div>` : '') +
+    (a.message ? `<div style="margin-top:4px;color:var(--mut)">${esc(a.message)}</div>` : '') +
+    `<div style="margin-top:6px;color:var(--mut)">다시 <b>U</b>를 누르면 닫힙니다.</div>`;
+  el.rev.style.display = 'block';
+}
+
+function next() {
+  if (S.i < S.queue.length - 1) { S.i++; render(); return; }
+  // 미완료 범위에서만 다음 묶음을 자동으로 당겨온다. 저장할수록 미완료가 줄어드는
+  // 범위라 그게 자연스럽다. 완료·전체에서 같은 짓을 하면 같은 쪽을 다시 받아
+  // 처음으로 튕겨 나가므로, 거기서는 쪽을 직접 넘기게 둔다(상단 ▶).
+  if (S.scope !== 'todo') return toast(`${curScope().label} 범위의 끝입니다 — 다음 쪽은 상단 ▶`);
+  toast('큐 끝 — 다음 묶음을 가져옵니다');
+  WB.load().then(n => { if (!n) toast('남은 작업이 없습니다', true); })
+           .catch(loadErr);
+}
+function prev() { if (S.i > 0) { S.i--; render(); } }
+
+/* 조회 창이 떠 있을 때만 통과시키는 키 — 확대·보정·화면 관련만이다.
+ * 판정(Space·Enter·N)과 이슈 코드 키는 일부러 빼 두었다. */
+
+/* --------------------------- 이름 게이트 --------------------------- */
+function gate(show) {
+  el.gate.style.display = show ? 'flex' : 'none';
+  el.cancelWho.style.display = S.labeler ? '' : 'none';   // 이름이 이미 있을 때만 취소 가능
+  if (show) { el.who.value = S.labeler || ''; setTimeout(() => { el.who.focus(); el.who.select(); }, 50); }
+}
+function setWho(v) {
+  S.labeler = v;
+  try { localStorage.setItem('hm_wb_labeler', v); } catch (e) {}
+  el.bWho.textContent = '검수자: ' + (v || '–');
+}
+el.goWho.onclick = async () => {
+  const v = el.who.value.trim();
+  if (!v) return toast('이름을 입력하세요', true);
+  setWho(v); gate(false);
+  try {
+    const n = await WB.load();
+    toast(n ? `${v} 님의 작업 ${n}건을 불러왔습니다` : `${v} 님에게 배정된 미완료 작업이 없습니다`, !n);
+  } catch (e) { toast(String(e.message || e), true); }
+};
+el.cancelWho.onclick = () => gate(false);
+el.who.addEventListener('keydown', e => { if (e.key === 'Enter') el.goWho.click(); });
+el.bWho.onclick = () => gate(true);
+el.bReload.onclick = async () => {
+  try {
+    const n = await WB.load();
+    toast(n ? `${n}건 다시 불러왔습니다` : '남은 작업이 없습니다', !n);
+  } catch (e) { toast(String(e.message || e), true); }
+};
+function guessLabeler() {
+  try { const s = localStorage.getItem('hm_wb_labeler'); if (s) return s; } catch (e) {}
+  const i = [...document.querySelectorAll('input')]
+    .find(x => /labeler|이름|name/i.test(x.name + x.id + x.placeholder) && x.value);
+  return (i && i.value.trim()) || '';
+}
+
+
+/* --------------------------- 코드 목록 대조 ---------------------------
+ * 서버는 매 응답에 유효한 이슈 코드 목록을 실어 보낸다.
+ * 우리 내장 목록과 다르면 = 판정 정책이 바뀐 것 → 크게 경고하고 저장을 끈다.
+ * (이 도구가 조용히 낡은 코드로 저장을 계속하는 것을 막는 안전장치) */
+let _driftWarned = false;
+function checkCodeDrift(serverCodes) {
+  if (!Array.isArray(serverCodes) || !serverCodes.length) return;
+  const mine = new Set(CODES.map(c => c.c));
+  const missing = serverCodes.filter(c => !mine.has(c));   // 서버엔 있는데 나는 모르는 코드
+  const stale   = [...mine].filter(c => !serverCodes.includes(c)); // 내겐 있는데 서버가 버린 코드
+  if (!missing.length && !stale.length) return;
+  if (S.armed) setArm(false);
+  if (_driftWarned) return;
+  _driftWarned = true;
+  const msg = '이슈 코드 정책이 바뀌었습니다. 이 도구는 구버전이니 원래 화면으로 작업하고, 스크립트 업데이트를 요청하세요.';
+  toast(msg, true);
+  console.warn('[워크벤치] 코드 목록 불일치',
+    { 서버에만_있음: missing, 도구에만_있음: stale });
+  el.rev.innerHTML = `<div class="h">주의 — 판정 코드 정책 변경 감지</div>${esc(msg)}` +
+    (missing.length ? `<div style="margin-top:5px">새 코드: ${missing.map(esc).join(', ')}</div>` : '') +
+    (stale.length ? `<div style="margin-top:4px">폐기된 코드: ${stale.map(esc).join(', ')}</div>` : '');
+  el.rev.style.display = 'block';
+}
+
+/* ══════ src/70-lookup.js ════════════════════════════════════════════ */
 /* --------------------------- 사례 조회 (읽기 전용) ---------------------------
  *  "이거 저번에 비슷한 게 있지 않았나" 를 Esc 로 빠져나가지 않고 여기서 본다.
  *
@@ -1349,7 +1800,7 @@ el.rCt2.oninput    = () => setFx('contrast', +el.rCt2.value);
 el.rBr2.oninput    = () => setFx('bright',   +el.rBr2.value);
 el.bInv2.onclick   = () => setFx('invert', S.pref.fx.invert ? 0 : 1);
 el.bGray2.onclick  = () => setFx('gray',   S.pref.fx.gray ? 0 : 1);
-el.bFxR2.onclick   = () => { S.pref.fx = Object.assign({}, DEF_PREF.fx); savePref(); applyPref(); };
+el.bFxR2.onclick   = () => resetFx();
 el.bLook.onclick   = () => openLook();
 el.lq.addEventListener('keydown', e => {
   if (e.isComposing || e.keyCode === 229) return;   // 한글 조합 중의 Enter 는 확정용
@@ -1357,97 +1808,74 @@ el.lq.addEventListener('keydown', e => {
   runLook(1); e.preventDefault(); e.stopPropagation();
 });
 
-/* --------------------------- 저장 --------------------------- */
-async function save(verdict) {
-  const it = cur(); if (!it || S.busy) return;
-  /* 내 큐로 불러온 건만 저장한다.
-   * 지금은 큐가 곧 내 것이라 이 조건이 깨질 일이 없다. 그래도 미리 채워 두는 이유는,
-   * 나중에 남의 건을 열람하는 기능이 붙었을 때 "저장 버튼을 안 누르면 된다"가 아니라
-   * "저장 경로 자체가 닫혀 있다"로 만들어 두기 위해서다. 조용히 넘어가지 않고 멈춘다. */
-  if (!S.mine.has(it.label_row_id)) {
-    console.warn('[워크벤치] 내 큐에 없는 건이라 저장을 막았습니다', it.label_row_id);
-    return toast('내 큐에서 불러온 건이 아니라 저장하지 않았습니다', true);
-  }
-  const codes = [...S.sel], msg = el.msg.value.trim();
-  if (verdict === 'reject') {
-    if (!codes.length) return toast('이슈 코드를 최소 1개 고르세요', true);
-    if (!msg) return toast('REJECT 사유 메시지를 적으세요', true);
-  }
-  const secs = (Date.now() - S.t0) / 1000;
-  const payload = { label_row_id: it.label_row_id, labeler: S.labeler, human_verdict: verdict,
-    human_issue_codes: verdict === 'reject' ? codes : [],
-    human_message: verdict === 'reject' ? msg : (msg || ''), discard_reason: '' };
-  if (!S.armed) {
-    console.log('%c[저장 꺼짐] 전송하지 않음', 'color:#b8860b', payload);
-    toast('저장 꺼짐 — 전송하지 않았습니다 (WB.arm() 으로 켜기)');
-    reveal(it, verdict, codes, true); return;
-  }
-  S.busy = true;
-  try {
-    await postSave(payload);
-    const resave = !!S.done[it.label_row_id];
-    S.done[it.label_row_id] = { verdict, codes: [...codes], msg };
-    if (!resave) tally(it, verdict, codes, secs);   // 재저장은 통계에 두 번 세지 않는다
-    reveal(it, verdict, codes, false);
-    toast('저장됨');
-    setTimeout(next, 900);
-  } catch (e) { toast(String(e.message || e), true); console.error(e); }
-  finally { S.busy = false; }
-}
-function tally(it, verdict, codes, secs) {
-  const s = S.stats, a = it.auto || {};
-  s.n++; s[verdict === 'pass' ? 'pass' : 'reject']++;
-  s.secs.push(+secs.toFixed(1)); if (s.secs.length > 400) s.secs.shift();
-  if (a.verdict === verdict) s.agreeVerdict++;
-  const A = new Set(a.issue_codes || []), inter = codes.filter(c => A.has(c)).length;
-  if (A.size === codes.length && inter === A.size) s.codeExact++;
-  else if (inter > 0) s.codePartial++;
-  else if (A.size || codes.length) s.codeMiss++;
-  saveStats(); renderStats();
-}
-function reveal(it, verdict, codes, dry) {
-  const a = it.auto || {}, A = new Set(a.issue_codes || []);
-  const mine = codes.map(c => (A.has(c) ? '<span class="ok">일치</span> ' : '<span class="no">나만</span> ') + c).join('<br>');
-  const only = (a.issue_codes || []).filter(c => !codes.includes(c)).map(c => 'auto만 ' + c).join('<br>');
-  el.rev.innerHTML = `<div class="h">AUTO 판정 대조${dry ? ' (저장 꺼짐)' : ''}</div>` +
-    `auto <b class="${a.verdict === verdict ? 'ok' : 'no'}">${a.verdict || '—'}</b> · 나 <b>${verdict}</b>` +
-    (mine ? `<div style="margin-top:5px">${mine}</div>` : '') +
-    (only ? `<div style="margin-top:4px;color:var(--mut)">${only}</div>` : '') +
-    (a.message ? `<div style="margin-top:5px;color:var(--mut)">${esc(a.message)}</div>` : '');
-  el.rev.style.display = 'block';
-}
-/* auto 판정 보기 — U 키 토글.
- * auto는 정밀도가 높은 편(잡은 건 대체로 진짜)이라 참고하면서,
- * auto가 못 잡은 것을 추가로 찾는 흐름에 쓴다. */
-function peekAuto() {
-  const it = cur(); if (!it) return;
-  if (el.rev.style.display === 'block' && el.rev.dataset.peek === it.label_row_id) {
-    el.rev.style.display = 'none'; delete el.rev.dataset.peek; return;
-  }
-  const a = it.auto || {};
-  el.rev.dataset.peek = it.label_row_id;
-  el.rev.innerHTML = `<div class="h">AUTO 판정</div>` +
-    `auto: <b>${esc(a.verdict || '—')}</b>` +
-    ((a.issue_codes || []).length ? `<div style="margin-top:4px">${a.issue_codes.map(esc).join('<br>')}</div>` : '') +
-    (a.message ? `<div style="margin-top:4px;color:var(--mut)">${esc(a.message)}</div>` : '') +
-    `<div style="margin-top:6px;color:var(--mut)">다시 <b>U</b>를 누르면 닫힙니다.</div>`;
-  el.rev.style.display = 'block';
-}
-
-function next() {
-  if (S.i < S.queue.length - 1) { S.i++; render(); return; }
-  toast('큐 끝 — 다음 묶음을 가져옵니다');
-  WB.load().then(n => { if (!n) toast('남은 작업이 없습니다', true); })
-           .catch(e => toast(String(e.message || e), true));
-}
-function prev() { if (S.i > 0) { S.i--; render(); } }
-
-/* 조회 창이 떠 있을 때만 통과시키는 키 — 확대·보정·화면 관련만이다.
- * 판정(Space·Enter·N)과 이슈 코드 키는 일부러 빼 두었다. */
-const LOOK_KEYS = new Set(['0', ',', '.', '[', ']', 'i', 'k', '\\', 'm', 'l', 'h', '-', '=', 'y']);
-
+/* ══════ src/80-keyboard.js ══════════════════════════════════════════ */
 /* --------------------------- 키보드 ---------------------------
- * 글자를 받는 곳에 포커스가 있으면 코드 단축키를 절대 가로채지 않는다.
+ *  실제 동작 · 조회 창 통과 목록 · 단축키 창 · 하단 안내가 전부 25-keys.js 의 표에서
+ *  나온다. 이 파일은 그 표를 소비할 뿐, 여기에 키를 직접 적지 않는다.
+ *
+ *  예외는 Alt+W 와 Esc 다. 여는 키와, 맥락에 따라 다섯 갈래로 갈리는 되돌리기는
+ *  표로 적으면 오히려 읽기 어려워진다. 대신 안내에는 virtual 줄로 실려 있다.
+ * --------------------------------------------------------------- */
+const KEYMAP = new Map();
+for (const r of keyRows()) if (r.k && r.act) {
+  // 같은 키가 둘이면 먼저 온 쪽이 이긴다. check.js 가 애초에 그런 표를 막는다.
+  if (!KEYMAP.has(r.k)) KEYMAP.set(r.k, r);
+  else console.warn('[워크벤치] 단축키 중복:', r.k, '—', KEYMAP.get(r.k).desc, 'vs', r.desc);
+}
+/* 조회 창이 떠 있을 때 통과시킬 키 — 손으로 적던 목록을 표에서 뽑아 쓴다 */
+const LOOK_KEYS = new Set([...KEYMAP.values()].filter(r => r.scope === 'view').map(r => r.k));
+
+/* 하단 한 줄 안내 */
+function hintHtml() {
+  return keyRows().filter(r => r.hint)
+    .map(r => `<kbd>${esc(r.show)}</kbd> ${r.desc}`).join(' · ') +
+    ' · 가운데 <b>경계선</b>으로 좌우 폭 조절';
+}
+
+/* 단축키 창 — 표를 group 순서대로 묶어 그린다.
+ * 이슈 코드 21개를 낱개로 늘어놓으면 창이 넘치므로 코드 그룹(A~F)으로 접어 보여준다. */
+function renderKeyHelp() {
+  const order = [], byGroup = new Map();
+  for (const r of keyRows()) {
+    if (!byGroup.has(r.group)) { byGroup.set(r.group, []); order.push(r.group); }
+    byGroup.get(r.group).push(r);
+  }
+  let html = '';
+  for (const g of order) {
+    const list = byGroup.get(g);
+    let body;
+    if (list[0] && list[0].code) {
+      const seen = [], per = new Map();
+      for (const r of list) {
+        if (!per.has(r.code.g)) { per.set(r.code.g, []); seen.push(r.code.g); }
+        per.get(r.code.g).push(`<kbd>${esc(r.show)}</kbd>`);
+      }
+      body = seen.map(k => `${k}그룹 ${per.get(k).join('')}`).join(' · ');
+    } else {
+      body = list.map(r => `<kbd>${esc(r.show)}</kbd> ${r.desc}`).join(' · ');
+    }
+    if (KEY_NOTES[g]) body += '<br>' + KEY_NOTES[g];
+    html += `<b>${esc(g)}</b><span>${body}</span>`;
+  }
+  el.ks.innerHTML = html;
+}
+
+/* 콘솔 도움말도 같은 표에서. 화면을 안 보고 물어보는 사람에게는 이 줄이 답이 된다. */
+function keyHelpText() {
+  const order = [], byGroup = new Map();
+  for (const r of keyRows()) {
+    if (r.code) continue;                       // 코드 키는 아래에서 한 줄로 따로
+    if (!byGroup.has(r.group)) { byGroup.set(r.group, []); order.push(r.group); }
+    byGroup.get(r.group).push(`${r.show} ${r.desc}`);
+  }
+  const pad = s => (s + '          ').slice(0, 9);
+  const lines = order.map(g => '  ' + pad(g) + '· ' + byGroup.get(g).join(' · '));
+  lines.push('  ' + pad('이슈 코드') + '· ' + CODES.map(c => c.k.toUpperCase()).join(' ') +
+             '   (키보드 위치가 그대로 코드 그룹 순서)');
+  return lines.join('\n');
+}
+
+/* 글자를 받는 곳에 포커스가 있으면 코드 단축키를 절대 가로채지 않는다.
  * 예전에는 el.msg / el.who / el.q 세 노드와 동일한지만 봤는데, 그러면
  *   · 나중에 입력 칸이 하나 늘어나거나
  *   · 워크벤치가 두 벌 떠서 "내 것이 아닌" 입력창을 만나면
@@ -1463,6 +1891,7 @@ function isTextEntry(n) {
   return !/^(button|checkbox|radio|submit|reset|file|image|range|color)$/i
     .test(n.getAttribute('type') || 'text');
 }
+
 bind(window, 'keydown', e => {
   if (e.altKey && (e.key === 'w' || e.key === 'W')) { WB.open(); e.preventDefault(); return; }
   if (!wrap.classList.contains('show')) return;
@@ -1475,6 +1904,7 @@ bind(window, 'keydown', e => {
   const focused = R.activeElement;              // 우리 shadow 트리에서 실제로 포커스를 쥔 것
   const on = path[0] || focused || {};
   const inText = isTextEntry(on) || isTextEntry(focused);
+
   if (e.key === 'Escape') {
     if (anyModal()) modal(null, false);
     else if (el.gate.style.display === 'flex' && S.labeler) gate(false);
@@ -1487,122 +1917,82 @@ bind(window, 'keydown', e => {
     e.preventDefault(); return;
   }
   if (inText || e.ctrlKey || e.metaKey || e.altKey) return;
-  const kk = e.key.toLowerCase();
-  if (anyModal()) {
-    // 모달이 떠 있으면 단축키를 먹지 않는다. 조회 창만 예외로 보기·보정 키를 통과시킨다 —
-    // 확대·대비를 못 만지면 결국 창을 닫고 나가게 되니 기능의 의미가 없어진다.
-    // 판정·코드 키는 여기에 없다. 그쪽은 계속 잠긴 채다.
-    if (!(el.mLook.classList.contains('show') && LOOK_KEYS.has(kk))) return;
-  }
   if (on.type === 'range') return;              // 슬라이더 조작 중에는 방향키를 양보
   // Tab 은 가로채지 않는다 — 키보드 사용자의 포커스 이동이 최우선이다.
   if (e.key === 'Tab') return;
   // 버튼·체크박스에 포커스가 있을 때 Space/Enter 는 그 요소의 것이다.
   const focusable = on.tagName === 'BUTTON' || (on.classList && on.classList.contains('cd'));
   if (focusable && (e.key === ' ' || e.key === 'Enter')) return;
-  const k = kk, P = S.pref, F = P.fx;
-  // Y = label 만 · Shift+Y = 상품명·주소까지 한 덩어리. 질문에 쓰는 쪽이 기본이다.
-  // 조회 창이 떠 있으면 대상은 거기서 고른 사례다.
-  if (k === 'y') {
-    const inLook = el.mLook.classList.contains('show');
-    const it = inLook ? LK.items[LK.sel] : cur();
-    if (e.shiftKey) copyRefOf(it, inLook); else copyLabel(it);
-    e.preventDefault(); return;
-  }
-  if (BY_KEY[k]) { toggle(BY_KEY[k].c); e.preventDefault(); return; }
-  const act = {
-    ' ':      () => save('pass'),
-    'enter':  () => save('reject'),
-    'n':      next,
-    'arrowright': next,
-    'arrowleft':  prev,
-    '0':      resetView,
-    'g':      () => setPref('guides', !P.guides),
-    'm':      () => setPref('loupe',  !P.loupe),
-    'l':      () => setPref('link',   !P.link),
-    '/':      () => setPref('desc',   !P.desc),
-    'h':      () => setPref('theme', {dark:'light', light:'mono', mono:'dark'}[P.theme]),
-    'i':      () => setFx('invert', F.invert ? 0 : 1),
-    'k':      () => setFx('gray',   F.gray ? 0 : 1),
-    ',':      () => setFx('contrast', F.contrast - 10),
-    '.':      () => setFx('contrast', F.contrast + 10),
-    '[':      () => setFx('bright',   F.bright - 10),
-    ']':      () => setFx('bright',   F.bright + 10),
-    '\\':     () => { S.pref.fx = Object.assign({}, DEF_PREF.fx); savePref(); applyPref(); },
-    '-':      () => setPref('ui', Math.max(85,  P.ui - 15)),
-    '=':      () => setPref('ui', Math.min(200, P.ui + 15)),
-    "'":      () => el.msg.focus(),
-    'f':      focusFind,
-    'u':      peekAuto,
-    'o':      openLook,
-    '?':      () => modal(el.mKeys, true),
-  }[k];
-  if (act) { act(); e.preventDefault(); }
+
+  const row = KEYMAP.get(e.key.toLowerCase());
+  if (!row) return;
+  // 모달이 떠 있으면 단축키를 먹지 않는다. 조회 창만 예외로 scope:'view' 를 통과시킨다 —
+  // 확대·대비를 못 만지면 결국 창을 닫고 나가게 되니 기능의 의미가 없어진다.
+  // 판정·코드 키(scope:'review')는 여기서 계속 잠긴 채다.
+  if (anyModal() && !(el.mLook.classList.contains('show') && LOOK_KEYS.has(row.k))) return;
+  row.act(e); e.preventDefault();
 }, true);
+
 el.msg.addEventListener('input', () => { el.msg.dataset.touched = '1'; });
 el.bp.onclick = () => save('pass');
 el.br.onclick = () => save('reject');
 el.bs.onclick = next;
 
-/* --------------------------- 이름 게이트 --------------------------- */
-function gate(show) {
-  el.gate.style.display = show ? 'flex' : 'none';
-  el.cancelWho.style.display = S.labeler ? '' : 'none';   // 이름이 이미 있을 때만 취소 가능
-  if (show) { el.who.value = S.labeler || ''; setTimeout(() => { el.who.focus(); el.who.select(); }, 50); }
+/* ══════ src/90-patrol.js ════════════════════════════════════════════ */
+/* --------------------------- 순찰 ---------------------------
+ * evictGhosts 는 이 스크립트보다 '먼저' 있던 유령만 치울 수 있다. Tampermonkey 에
+ * 옛 버전 항목이 같이 켜져 있으면 그쪽이 우리 '뒤에' 로드되면서 전역 키 핸들러를
+ * 새로 깔고, q·w·e·z 를 도로 먹기 시작한다 — 0.9.3 증상의 재발 경로다.
+ * 그래서 0.5초마다 확인한다: 낯선 워크벤치 DOM 은 걷어내고, 빼앗긴 window.WB 는
+ * 되찾고, 관리자 화면이 body 를 갈아끼워 떨어져 나간 내 host 는 도로 붙인다.
+ * 더 새 버전이 보이면 싸우지 않는다 — 내가 비킨다. */
+function verNum(v) {
+  const p = String(v || '0').split('.');
+  return (+p[0] || 0) * 1e6 + (+p[1] || 0) * 1e3 + (+p[2] || 0);
 }
-function setWho(v) {
-  S.labeler = v;
-  try { localStorage.setItem('hm_wb_labeler', v); } catch (e) {}
-  el.bWho.textContent = '검수자: ' + (v || '–');
+function quietHost(h) {   // evictGhosts 와 같은 처치 — 화면을 접고, 다시 켜지지 않게 잠근다
+  const w = h.shadowRoot && h.shadowRoot.querySelector('.wrap');
+  if (w) {
+    w.classList.remove('show');
+    try { new MutationObserver(() => { if (w.classList.contains('show')) w.classList.remove('show'); })
+            .observe(w, { attributes:true, attributeFilter:['class'] }); } catch (e) {}
+  }
+  h.remove();
 }
-el.goWho.onclick = async () => {
-  const v = el.who.value.trim();
-  if (!v) return toast('이름을 입력하세요', true);
-  setWho(v); gate(false);
-  try {
-    const n = await WB.load();
-    toast(n ? `${v} 님의 작업 ${n}건을 불러왔습니다` : `${v} 님에게 배정된 미완료 작업이 없습니다`, !n);
-  } catch (e) { toast(String(e.message || e), true); }
-};
-el.cancelWho.onclick = () => gate(false);
-el.who.addEventListener('keydown', e => { if (e.key === 'Enter') el.goWho.click(); });
-el.bWho.onclick = () => gate(true);
-el.bReload.onclick = async () => {
-  try {
-    const n = await WB.load();
-    toast(n ? `${n}건 다시 불러왔습니다` : '남은 작업이 없습니다', !n);
-  } catch (e) { toast(String(e.message || e), true); }
-};
-function guessLabeler() {
-  try { const s = localStorage.getItem('hm_wb_labeler'); if (s) return s; } catch (e) {}
-  const i = [...document.querySelectorAll('input')]
-    .find(x => /labeler|이름|name/i.test(x.name + x.id + x.placeholder) && x.value);
-  return (i && i.value.trim()) || '';
+function patrol() {
+  // 1) window.WB 를 남이 쥐고 있다: 더 새 버전이면 내가 비키고, 구버전이면 내리고 되찾는다.
+  //    (제대로 된 새 버전은 설치할 때 우리 destroy() 를 불러 TICK 을 끄므로,
+  //     내가 아직 돌고 있는데 자리를 빼앗겼다면 그쪽은 guard 없는 구버전이다.)
+  const alien = window.WB;
+  if (alien && alien !== WB) {
+    if (verNum(alien.VERSION) > verNum(VERSION)) { WB.destroy(); return; }
+    console.warn('[워크벤치] v' + (alien.VERSION || '?') + ' 이 내 뒤에 로드됨 — 내리고 자리를 되찾습니다');
+    try { alien.destroy && alien.destroy(); } catch (e) {}
+    window.WB = WB;
+  }
+  // 2) 낯선 워크벤치 DOM — destroy() 가 없는 구버전이 내 뒤에 만든 것
+  for (const h of document.querySelectorAll('#hm-wb-host')) {
+    if (h === host) continue;
+    const c = verNum(h.dataset.v) - verNum(VERSION);
+    // 같은 버전이 둘이면(샌드박스 분리 등) 먼저 태어난 쪽이 남는다 — 둘 다 비키면 아무도 없다
+    if (c > 0 || (c === 0 && +(h.dataset.born || 0) < +host.dataset.born)) { WB.destroy(); return; }
+    console.warn('[워크벤치] 낯선 워크벤치 DOM 을 걷어냅니다 (v' + (h.dataset.v || '0.9.6 이하') + ')');
+    quietHost(h);
+  }
+  for (const n of [...(document.body ? document.body.children : [])]) {
+    if (n !== launcher && n.tagName === 'BUTTON' &&
+        (n.dataset.hmWbLauncher || n.textContent === '검수 워크벤치')) n.remove();
+  }
+  // 3) 관리자 화면이 body 를 갈아끼워 내 host·실행 버튼이 떨어졌으면 도로 붙인다
+  if (!host.isConnected && document.body) document.body.appendChild(host);
+  if (!launcher.isConnected && document.body) document.body.appendChild(launcher);
 }
 
-/* --------------------------- 코드 목록 대조 ---------------------------
- * 서버는 매 응답에 유효한 이슈 코드 목록을 실어 보낸다.
- * 우리 내장 목록과 다르면 = 판정 정책이 바뀐 것 → 크게 경고하고 저장을 끈다.
- * (이 도구가 조용히 낡은 코드로 저장을 계속하는 것을 막는 안전장치) */
-let _driftWarned = false;
-function checkCodeDrift(serverCodes) {
-  if (!Array.isArray(serverCodes) || !serverCodes.length) return;
-  const mine = new Set(CODES.map(c => c.c));
-  const missing = serverCodes.filter(c => !mine.has(c));   // 서버엔 있는데 나는 모르는 코드
-  const stale   = [...mine].filter(c => !serverCodes.includes(c)); // 내겐 있는데 서버가 버린 코드
-  if (!missing.length && !stale.length) return;
-  if (S.armed) setArm(false);
-  if (_driftWarned) return;
-  _driftWarned = true;
-  const msg = '이슈 코드 정책이 바뀌었습니다. 이 도구는 구버전이니 원래 화면으로 작업하고, 스크립트 업데이트를 요청하세요.';
-  toast(msg, true);
-  console.warn('[워크벤치] 코드 목록 불일치',
-    { 서버에만_있음: missing, 도구에만_있음: stale });
-  el.rev.innerHTML = `<div class="h">주의 — 판정 코드 정책 변경 감지</div>${esc(msg)}` +
-    (missing.length ? `<div style="margin-top:5px">새 코드: ${missing.map(esc).join(', ')}</div>` : '') +
-    (stale.length ? `<div style="margin-top:4px">폐기된 코드: ${stale.map(esc).join(', ')}</div>` : '');
-  el.rev.style.display = 'block';
-}
+const TICK = setInterval(() => {
+  patrol();
+  if (S.pref.showTimer && wrap.classList.contains('show') && cur())
+    el.tmr.textContent = ((Date.now() - S.t0) / 1000).toFixed(0) + '초';
+}, 500);
 
 /* --------------------------- 공개 API --------------------------- */
 const WB = window.WB = {
@@ -1627,15 +2017,57 @@ const WB = window.WB = {
     else S.t0 = Date.now();
   },
   close() { wrap.classList.remove('show'); },
-  async load(who, size) {
-    if (who || !S.labeler) setWho(who || S.labeler || guessLabeler());
+  /* WB.load()              지금 범위·쪽 그대로 다시
+   * WB.load('joel')        검수자를 바꿔서
+   * WB.load({scope:'done', page:2, size:200})
+   * (옛 호출 WB.load(who, size) 도 그대로 받는다) */
+  async load(a, b, c, d) {
+    const o = (a && typeof a === 'object') ? a : { who:a, size:b, scope:c, page:d };
+    if (o.scope && !SCOPES[o.scope]) { toast('모르는 범위입니다: ' + o.scope, true); return 0; }
+    if (o.who || !S.labeler) setWho(o.who || S.labeler || guessLabeler());
     if (!S.labeler) { gate(true); return 0; }
-    const d = await fetchQueue(S.labeler, size || 40);
-    checkCodeDrift(d.issue_codes);
-    S.queue = d.items || []; S.i = 0;
-    S.queue.forEach(x => S.mine.add(x.label_row_id));   // 저장 자물쇠의 열쇠는 여기서만 만들어진다
-    console.log(`큐 ${S.queue.length}건 로드 (미완료 총 ${d.total}건) · labeler=${S.labeler}`);
-    render(); return S.queue.length;
+    if (o.scope) S.scope = o.scope;
+    S.page = Math.max(1, o.page || 1);
+    const sc = curScope();
+    const res = await fetchQueue(S.labeler, o.size || sc.size, S.page);
+    checkCodeDrift(res.issue_codes);
+    S.fetched = res.items || [];
+    S.total = res.total || 0;
+    S.open.clear();                       // 잠금은 큐마다 새로 건다
+    for (const x of S.fetched) {
+      S.mine.add(x.label_row_id);         // 저장 자물쇠의 열쇠는 여기서만 만들어진다
+      if (humanOf(x)) S.wasDone.add(x.label_row_id);
+    }
+    applyScope();                         // S.queue 를 범위로 걸러내고 render()
+    console.log(`큐 ${S.queue.length}건 (받은 ${S.fetched.length}건 / 서버 총 ${S.total}건) · ` +
+                `범위=${sc.label} · ${S.page}쪽 · labeler=${S.labeler}`);
+    return S.queue.length;
+  },
+  scope(name) { if (name == null) { cycleScope(); return S.scope; } setScope(name); return S.scope; },
+  page(n) { return WB.load({ page: n }); },
+  fix()   { unlock(); },
+  /* 서버의 label_status 가 어떤 값을 받는지 확인된 바가 없다.
+   * 그래서 "내 완료"는 받은 목록을 판정 유무로 거르는 방식이다 — 서버가 mine 에
+   * 완료를 안 실어 주면 완료 범위가 비어 보인다. 그때 이걸 돌려 보면 된다.
+   * page_size=5 짜리 읽기 전용 GET 이라 아무것도 바꾸지 않는다. */
+  async probe() {
+    const cands = ['mine', 'all', 'done', 'mine_done', 'labeled', 'completed', 'complete', 'todo'];
+    const rows = [];
+    for (const st of cands) {
+      try {
+        const d = await api(`api/labeling/items?batch_id=all&label_status=${encodeURIComponent(st)}` +
+          `&auto_verdict=all&human_verdict=all&issue_code=all&labeler_filter=&q=` +
+          `&page=1&page_size=5&labeler=${encodeURIComponent(S.labeler)}`);
+        const items = d.items || [];
+        rows.push({ label_status: st, 서버_총건수: d.total, 받은건수: items.length,
+          '판정 있는 건': items.filter(humanOf).length,
+          '항목의 label_status': [...new Set(items.map(i => i.label_status).filter(Boolean))].join(',') || '—' });
+      } catch (e) { rows.push({ label_status: st, 오류: String(e.message || e).slice(0, 70) }); }
+    }
+    console.table(rows);
+    console.log('"판정 있는 건" 이 0 이 아닌 값을 찾으면 알려주세요 — src/30-state.js 의 fetchQueue 에 반영하면\n' +
+                '완료 범위가 클라이언트 거르기 없이 서버에서 바로 옵니다.');
+    return rows;
   },
   arm()    { setArm(true); },
   disarm() { setArm(false); },
@@ -1676,6 +2108,8 @@ const WB = window.WB = {
   raw: S,
 };
 
+/* ══════ src/99-start.js ═════════════════════════════════════════════ */
+renderKeyHelp();      // 단축키 창을 25-keys.js 의 표에서 그린다
 applyPref();
 applyFind();
 setWho(guessLabeler());
@@ -1685,18 +2119,18 @@ console.log([
   '  검수자 이름은 처음 열 때 화면에서 물어봅니다.',
   '  나중에 바꾸려면 상단 [검수자] 버튼, 큐를 다시 받으려면 [큐 새로고침].',
   '',
-  '  코드 검색 : F → 검색어 → Enter 로 첫 결과 선택, Esc 로 해제.',
-  '             코드명·공식 설명·경계 메모를 함께 찾습니다 (shadow / 그림자 둘 다 가능).',
+  '단축키 (src/25-keys.js 의 표에서 자동 생성 — 안내와 실제가 어긋날 수 없습니다)',
+  keyHelpText(),
   '',
-  '  복사     : Y — label 만 복사. Shift+Y — 상품명·주소·고른 코드까지 한 덩어리.',
-  '             코드 행 Alt+클릭 = 그 코드명만 복사(고르기는 되지 않음).',
-  '',
-  '  사례 조회 : O — 상품명·상품 ID 로 다른 건을 찾아봅니다. 읽기 전용이고,',
-  '             확대·이동·보정은 검수 화면과 똑같이 됩니다. 판정 키만 잠깁니다.',
-  '             남의 판정은 기본으로 숨김 — [사람 판정] 버튼으로 켭니다.',
+  '  내 완료  : B — 범위를 미완료 ▸ 완료 ▸ 전체 로 돌립니다. 완료 범위에서는',
+  '             내가 이미 판정한 건을 저장된 코드·메시지까지 되살려 다시 봅니다.',
+  '             판정이 있는 건은 잠긴 채로 열립니다 — 고치려면 J 를 먼저.',
+  '             쪽 넘기기는 상단 ◀ ▶ · 콘솔에서는 WB.page(2)',
+  '             완료가 0건으로 나오면 →  WB.probe()  (읽기 전용 진단)',
   '',
   '  단축키가 이상하면 (q·w·e·z 가 안 찍히는 등) →  WB.doctor()',
   '',
   '  저장은 처음엔 꺼져 있습니다. 켜려면 →  WB.arm()',
 ].join('\n'));
+
 })();
