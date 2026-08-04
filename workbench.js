@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HM 빅카드 검수 워크벤치
 // @namespace    hailmary-qa
-// @version      0.9.9
+// @version      0.9.10
 // @description  빅카드 생성 검수 보조 — 확대·단축키·코드 검색·건 정보 복사·사례 조회·내 완료 재검토·저시력 지원 (토스 톤)
 // @match        https://hailmary-commerce.dev.onkakao.net/admin/*
 // @grant        none
@@ -18,6 +18,18 @@
  *   · 크게 손댔으면  node smoke.js  — 진짜 DOM 에 한 번 올려 본다 (npm i jsdom)
  *
  *  변경 이력
+ *   0.9.10 폐기(discarded)된 건을 잠근다. 두 번째 probe 에서 서버에 discarded 가 50건 있고
+ *         판정(human)은 비어 있다는 것이 드러났다 — 그러면 워크벤치 눈에는 "아직 판정이 없는 건"
+ *         으로 보여서 잠기지 않은 채 열리고, Space 한 번에 폐기가 PASS 로 덮인다.
+ *         지금 쓰는 두 큐(mine · mine_done)로는 폐기 건이 오지 않지만, 오는 날 조용히 깨질
+ *         자리라 미리 막았다. 워크벤치는 폐기를 만들 수도 되돌릴 수도 없으므로
+ *         (저장 payload 의 discard_reason 을 늘 빈 값으로 보낸다) J 로도 열리지 않는다.
+ *         · 완료 건의 human 모양 확인 — {verdict, issue_codes[], message} 로 코드·메시지까지
+ *           전부 실려 온다(detail:true). 그래서 완료 범위에서 J 로 고치는 길이 정상적으로 열린다.
+ *         · WB.probe() 는 이제 확인된 값만 훑는다 — 400 이 콘솔에 빨갛게 쌓이지 않는다.
+ *           안 받는 값까지 다시 보려면 WB.probe(true).
+ *         · label_status 질의값 표를 최신으로 (unlabeled·mine_discarded 도 400 이다).
+ *
  *   0.9.9 "내 완료"가 실제로 동작한다. 0.9.8 은 label_status=mine 한 벌을 받아 판정 유무로
  *         갈랐는데, mine 은 애초에 미완료 큐(373건 · 전부 unlabeled)라 완료가 항상 0건이었다.
  *         있지도 않은 것을 거르고 있었던 셈이다.
@@ -115,7 +127,7 @@
  * ============================================================= */
 (() => {
 'use strict';
-const VERSION = "0.9.9";
+const VERSION = "0.9.10";
 
 /* ══════ src/10-boot.js ══════════════════════════════════════════════ */
 /* --------------------------------------------------------------------------
@@ -442,13 +454,18 @@ const S = {
  *
  *  서버가 받는 label_status 값. 2026-08-04 에 WB.probe() 로 실제로 확인했다:
  *
- *    mine        내게 배정된 미완료        373건 · 항목 label_status='unlabeled' · 판정 0/5
- *    mine_done   내가 판정을 끝낸 것       127건 · 항목 label_status='labeled'   · 판정 5/5
- *    labeled     남의 것까지 판정된 전부  8795건   ← 쓰지 않는다
- *    all         전부                   44489건   ← 쓰지 않는다
- *    done · completed · complete · todo → 400 {"detail":"unknown label_status"}
+ *    mine        내게 배정된 미완료      372건 · 항목 label_status='unlabeled'  · 판정 0/5
+ *    mine_done   내가 판정을 끝낸 것     128건 · 항목 label_status='labeled'    · 판정 5/5
+ *    labeled     남의 것까지 판정된 전부 8801건   ← 쓰지 않는다 (남의 건)
+ *    all         전부                  44489건   ← 쓰지 않는다 (남의 건)
+ *    discarded   폐기된 건                50건 · 항목 label_status='discarded' · 판정 0/5
+ *    unlabeled · mine_discarded · done · completed · complete · todo
+ *                → 400 {"detail":"unknown label_status"}
+ *                ('unlabeled' 는 항목 상태로는 쓰이지만 질의 값으로는 안 받는다)
  *
- *  373 + 127 = 500 = 내게 배정된 전체. 앞뒤가 맞는다.
+ *  372 + 128 = 500 = 내게 배정된 전체.
+ *  (두 번 잰 사이에 한 건이 미완료→완료로 넘어갔다. 살아 있는 숫자라 조금씩 움직인다.
+ *   여기 적힌 값은 그날의 스냅숏이고, 다시 재려면 WB.probe().)
  *
  *  ★ labeled·all 을 안 쓰는 이유는 양이 많아서가 아니라 안전 때문이다.
  *    거기서 온 건은 남의 것인데, 큐로 불러오는 순간 S.mine 에 들어가
@@ -498,7 +515,15 @@ function judgedOf(it) {
   const d = S.done[it.label_row_id];
   return d ? { verdict:d.verdict, codes:d.codes, msg:d.msg, detail:true, mine:1 } : humanOf(it);
 }
-const isLocked = it => !!judgedOf(it) && !S.open.has(it && it.label_row_id);
+/* 폐기(discarded)는 판정이 아니라 상태다 — human 이 비어 있어서 humanOf 로는 안 잡힌다.
+ * 서버에 50건 있고, 저장 payload 에도 discard_reason 칸이 있다(워크벤치는 늘 빈 값으로 보낸다).
+ *
+ * 지금 쓰는 두 큐(mine · mine_done)로는 폐기 건이 오지 않는다. 그래도 막아두는 이유는,
+ * 만약 오면 "판정이 없는 건" 으로 보여서 잠기지 않은 채 열리고, Space 한 번에 폐기가
+ * PASS 로 덮이기 때문이다. 워크벤치는 폐기를 만들 수도 되돌릴 수도 없으므로
+ * (discard_reason 을 넣을 자리가 없다) 오면 잠가 두고 원래 화면으로 보낸다. */
+const isDiscarded = it => !!it && it.label_status === 'discarded';
+const isLocked = it => (!!judgedOf(it) || isDiscarded(it)) && !S.open.has(it && it.label_row_id);
 function loadPref() {
   try { return Object.assign({}, DEF_PREF, JSON.parse(localStorage.getItem(LS_PREF)) || {}); }
   catch (e) { return Object.assign({}, DEF_PREF); }
@@ -1454,6 +1479,14 @@ function paintLock() {
   const j = judgedOf(it);
   const locked = isLocked(it);
   wrap.classList.toggle('locked', locked);
+  if (isDiscarded(it)) {
+    el.rev.innerHTML = `<div class="h">잠김 — 폐기된 건입니다</div>` +
+      `이 건은 판정이 아니라 <b>폐기</b>로 처리돼 있습니다. 워크벤치는 폐기를 만들 수도 되돌릴 수도 없어서
+       (폐기 사유를 넣을 자리가 없습니다) 여기서는 열지 않습니다.
+       <div style="margin-top:4px;color:var(--mut)">그냥 넘어가세요(<b>N</b>). 손댈 일이 있으면 원래 라벨링 화면에서 하세요.</div>`;
+    el.rev.style.display = 'block';
+    return;
+  }
   if (!j) return;
   const src = j.mine ? '이 세션에서 판정한 건입니다' : '이미 판정이 저장된 건입니다';
   el.rev.innerHTML = `<div class="h">${locked ? '잠김 — ' : ''}${src}</div>` +
@@ -1471,6 +1504,11 @@ function paintLock() {
 }
 function unlock(force) {
   const it = cur(); if (!it) return;
+  /* 폐기 건은 강제로도 열지 않는다. 열어봐야 이 도구가 보낼 수 있는 건 pass/reject 뿐이라
+   * 폐기 상태를 사유도 없이 지우게 된다 — 표현할 수 없는 상태를 덮어쓰는 것은 막는다. */
+  if (isDiscarded(it)) {
+    return toast('폐기된 건은 워크벤치에서 못 고칩니다 — 원래 라벨링 화면에서 하세요', true);
+  }
   const j = judgedOf(it);
   if (!j) return toast('아직 판정이 없는 건이라 잠겨 있지 않습니다');
   if (S.open.has(it.label_row_id)) return toast('이미 고칠 수 있는 상태입니다');
@@ -1595,7 +1633,9 @@ async function save(verdict) {
   /* 판정이 이미 있는 건은 J(고치기)를 눌러 잠금을 푼 뒤에만 덮어쓸 수 있다.
    * 손버릇으로 누른 Space 가 여기서 멈춘다. */
   if (isLocked(it)) {
-    return toast('이미 판정이 있는 건입니다 — [고치기](J) 를 누른 뒤에 저장하세요', true);
+    return toast(isDiscarded(it)
+      ? '폐기된 건이라 저장하지 않았습니다 — 원래 라벨링 화면에서 하세요'
+      : '이미 판정이 있는 건입니다 — [고치기](J) 를 누른 뒤에 저장하세요', true);
   }
   const codes = [...S.sel], msg = el.msg.value.trim();
   if (verdict === 'reject') {
@@ -2112,8 +2152,11 @@ const WB = window.WB = {
    * labeled·all 은 남의 것까지 섞여 오므로 큐로는 쓰지 않는다.
    * 서버가 바뀌어 완료 범위가 이상해지면 다시 돌려 보면 된다.
    * page_size=5 짜리 GET 이라 아무것도 바꾸지 않는다. */
-  async probe() {
-    const cands = ['mine', 'mine_done', 'all', 'labeled', 'unlabeled', 'discarded', 'mine_discarded'];
+  async probe(rediscover) {
+    // 기본은 서버가 받는 것으로 확인된 값만 — 400 이 콘솔에 빨갛게 쌓이지 않는다.
+    // WB.probe(true) 는 안 받는 값까지 다시 훑는다 (서버가 늘었는지 볼 때).
+    const cands = ['mine', 'mine_done', 'all', 'labeled', 'discarded'].concat(
+      rediscover ? ['unlabeled', 'mine_discarded', 'done', 'completed', 'complete', 'todo'] : []);
     const rows = [];
     for (const st of cands) {
       try {
